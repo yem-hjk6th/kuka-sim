@@ -36,8 +36,12 @@ bed:                      # bare MDF board; print surface
   corner_status: measured
   plus_x_edge_x: 1018.0
   rotation_about_z_deg: null               # not measured; 1 deg moves an edge ~3 mm per 170 mm
-  size_xy: null                            # unknown; the board extends towards -X and -Y from the corner
-  size_status: unknown
+  size_xy: [609.6, 609.6]                  # a 2 ft square board, extending towards -X and -Y from the corner
+  thickness: 6.3
+  size_status: model                       # from the owner's lab model; its +X/+Y corner is within 3-5 mm of the
+                                           # measured one, but its Z datum differs by ~13.6 mm, so use top_z above
+  printable_range_xy: {x: [574.5, 999.8], y: [-685.7, -132.6]}   # region drawn in the lab model
+  printable_range_status: model
 
 obstacles:
   - name: bed_clamp_plus_x_plus_y
