@@ -1,0 +1,6 @@
+# FK validation pairs read on the pendant: $AXIS_ACT (A1..A6, deg) and $POS_ACT (X,Y,Z mm, A,B,C deg)
+# with TOOL 3 and BASE 0 active. One row per pose, 20-30 poses spread over the work area,
+# including some with B far from 90 and some near the bed corners. Run: python validate_fk.py <file>
+# Empty on purpose: the one logged home pose mentioned in config/cell.yaml is not in the repository
+# with its numbers, so no pair could be derived without making one up.
+A1,A2,A3,A4,A5,A6,X,Y,Z,A,B,C

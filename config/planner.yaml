@@ -1,0 +1,50 @@
+# Parameters of the step-1 simulation and DP planner.
+# Units: mm and degrees unless stated. Every geometric value here that describes the
+# real cell is a guess (status: estimated) and is a parameter, not a constant.
+# Values measured on the cell live in config/cell.yaml; this file never overrides them.
+
+toolpath:
+  ds_mm: 1.5                 # waypoint spacing (task: densify to 1-2 mm, LIN/C_DIS blending is not modelled)
+  patch_center_xy: [713, -410]   # centre of the bed outline in cell.yaml
+  patch_half_size: 120       # test surfaces span 240 x 240 mm
+  raster_spacing: 40         # distance between raster lines (sparse on purpose: this is a planner test, not infill)
+  base_height: 10            # first non-planar layer sits this far above the bed top
+  layer_index: 0             # which layer of the stack is planned (layer z = surface + index * layer height)
+  max_tilt_deg: 30           # default nozzle tilt cap from vertical; RESULTS.md sweeps it
+  tilt_sweep_deg: [0, 15, 30, 45, 60]
+  perimeter_inset: 40        # perimeter test path, inset from the bed outline
+
+planner:
+  angle_bin_deg: 5           # redundancy-angle discretisation (72 bins over 360 deg)
+  max_dbin: 3                # max change of redundancy bin between neighbouring points (15 deg per step)
+  velocity_scale: 1.0        # fraction of URDF joint velocity used for the max joint step (URDF velocities unverified)
+  min_abs_a5_deg: 0.0        # optional hard wrist-singularity limit; 0 = cost only
+  weights:
+    limit: 1.0               # joint-limit proximity
+    singularity: 1.0         # wrist singularity (|A5| small)
+    smooth: 1.0              # joint-space smoothness, (dq / dq_max)^2 summed over joints
+  limit_soft_zone_deg: 30    # limit cost rises inside this distance to the (margin-reduced) limit
+  a5_soft_zone_deg: 20       # singularity cost rises for |A5| below this
+
+collision:
+  bed_gap_mm: 5.0            # required clearance of every robot/tool primitive to the bed top
+  tip_free_mm: 10.0          # last part of the nozzle that is allowed to be near the bed/print
+  clamp_inflate_mm: 20.0     # added to every clamp box (photo estimates are +-15-30 mm)
+  clamp_half_xy: [30, 30]    # toggle clamp footprint half size (estimated)
+  clamp_default_height: 72   # used when a clamp's height is unknown (the one measured clamp is 72 above the bed)
+  minus_x_clamp_band: [380, 410]   # x band of the -X clamp pair; y unknown -> spans the whole bed edge
+  check_floor: true          # nothing below the bed underside (table) except the robot base
+  # Primitive robot model (capsules: segment + radius), radii estimated from the datasheet drawing.
+  link_radius:
+    link1: 110
+    upper_arm: 75
+    forearm: 65
+    wrist: 60
+  # Tool (extruder) primitives in the flange frame; the real tool geometry is unknown.
+  # The tip is TOOL 3 = (225.55, -0.6, 72.83). The nozzle points along tool +X.
+  tool:
+    bracket_radius: 45       # flange -> barrel axis, along flange Z
+    barrel_radius: 40        # barrel along tool X, from barrel_back_mm behind to nozzle start
+    barrel_back_mm: 120      # hopper/feed side behind the flange axis (-X tool)
+    nozzle_length: 40        # nozzle cone length before the tip
+    nozzle_radius: 10
