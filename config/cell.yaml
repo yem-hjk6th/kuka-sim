@@ -19,7 +19,20 @@ tool:                     # TOOL_DATA[3] from the controller's $config.dat (copy
 
 base: {x: 0, y: 0, z: 0, a: 0, b: 0, c: 0}   # BASE 0
 
-joint_limits_deg:         # from the URDF (datasheet values); the controller's software limits are unknown
+datasheet:                # KUKA datasheet 0000-290-003 V7.1 (07.03.2024), checked 2026-10-31
+  reach_mm: 1101
+  payload_rated_kg: 10
+  payload_max_kg: 11.1
+  robot_mass_kg: 55
+  axis_ranges_match_urdf: true
+  axis_speeds: "not in this datasheet; URDF velocities (300/225/330/360/360/433 deg/s) are unverified"
+
+tool_load:                # LOAD_DATA[3] on the controller is a placeholder (10 kg, CM 0); real values unknown
+  mass_kg: null
+  com_mm: null
+  status: unknown
+
+joint_limits_deg:         # from the URDF (= datasheet ranges); the controller's software limits are unknown
   status: unknown         # $SOFTN_END / $SOFTP_END still to be read from $machine.dat
   use_margin_deg: 2.0
   a1: [-170, 170]
