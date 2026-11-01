@@ -30,25 +30,30 @@ joint_limits_deg:         # from the URDF (datasheet values); the controller's s
   a6: [-350, 350]
 
 bed:                      # bare MDF board; print surface
-  top_z: 1.0              # 0.95 from an analysis of logged prints; 1.38 at a corner over tape
-  top_z_status: estimated
-  corner_plus_x_plus_y: [1018.0, -105.9]   # jogged on 2026-10-06
+  # Current bed (in use since after May 2026): a CNC-cut 2 ft x 2 ft MDF board on a dark underlay sheet.
+  top_z: 0.95             # measured 2026-10-13 at (880, -520); 1.38 at the +X/+Y corner over cloth tape
+  top_z_status: measured
+  corner_plus_x_plus_y: [1018.01, -105.87] # jogged 2026-10-06 ($POS_ACT, TOOL 3, BASE 0)
   corner_status: measured
-  plus_x_edge_x: 1018.0
-  rotation_about_z_deg: null               # not measured; 1 deg moves an edge ~3 mm per 170 mm
-  size_xy: [609.6, 609.6]                  # a 2 ft square board, extending towards -X and -Y from the corner
-  thickness: 6.3
-  size_status: model                       # from the owner's lab model; its +X/+Y corner is within 3-5 mm of the
-                                           # measured one, but its Z datum differs by ~13.6 mm, so use top_z above
-  printable_range_xy: {x: [574.5, 999.8], y: [-685.7, -132.6]}   # region drawn in the lab model
-  printable_range_status: model
+  edge_lengths_from_corner: {to_plus_x_minus_y: 608, to_minus_x_plus_y: 610}   # measured 2026-10-06
+  outline_xy: {x: [408.0, 1018.0], y: [-713.9, -105.9]}   # derived, assuming edges along the base axes
+  outline_status: derived
+  rotation_about_z_deg: null               # not measured; a second jogged corner (-X/+Y) would give it
+  thickness: 13.55                         # derived (consistent with 1/2 in MDF), not measured
+  note: "The +X/-Y corner is outside the robot's workspace (not reachable by jog)."
 
-obstacles:
-  - name: bed_clamp_plus_x_plus_y
-    center_xy: [990, -168]                 # estimated from a photo
+obstacles:                                 # toggle clamps holding the bed; positions are photo estimates (+-15-30 mm)
+  - name: clamp_plus_x_plus_y
+    pad_xy: [990, -168]
     top_above_bed: 72                      # measured 2026-10-17
     distance_to_plus_y_edge: 32            # measured 2026-10-17
     distance_to_plus_x_edge: 28.7          # measured 2026-10-17
+    status: estimated
+  - name: clamp_plus_x_minus_y
+    pad_xy: [981, -670]
+    status: estimated
+  - name: clamps_minus_x_pair
+    x: 395                                 # just outside the -X edge; pads at x ~420; their y is not known
     status: estimated
   # hopper, hose, cables, camera cage: unknown, to be added
 
