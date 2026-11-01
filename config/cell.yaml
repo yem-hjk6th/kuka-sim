@@ -1,0 +1,60 @@
+# Print cell of the KUKA KR 10 R1100-2 (KR C4, KSS 8.3), as far as it is known.
+# Units: mm and degrees unless stated. Frames: BASE 0 = robot base frame; TOOL 3 = nozzle tip.
+# status: measured | copied (from a controller file) | estimated | unknown
+
+robot:
+  model: KR 10 R1100-2
+  urdf: robot/kr10_r1100_2/urdf/kr10_r1100_2.urdf   # exported with SW2URDF; meshes are not in this repo
+  status: copied
+  check: "FK of this URDF + TOOL 3 reproduced one logged home pose to 0.05 mm / 0.04 deg; only one pose checked"
+
+tool:                     # TOOL_DATA[3] from the controller's $config.dat (copy of 2026-05-12)
+  x: 225.55
+  y: -0.6
+  z: 72.83
+  a: 0.0
+  b: 0.0
+  c: 0.0
+  status: copied          # to be re-confirmed on the pendant
+
+base: {x: 0, y: 0, z: 0, a: 0, b: 0, c: 0}   # BASE 0
+
+joint_limits_deg:         # from the URDF (datasheet values); the controller's software limits are unknown
+  status: unknown         # $SOFTN_END / $SOFTP_END still to be read from $machine.dat
+  use_margin_deg: 2.0
+  a1: [-170, 170]
+  a2: [-190, 45]
+  a3: [-120, 156]
+  a4: [-185, 185]
+  a5: [-120, 120]
+  a6: [-350, 350]
+
+bed:                      # bare MDF board; print surface
+  top_z: 1.0              # 0.95 from an analysis of logged prints; 1.38 at a corner over tape
+  top_z_status: estimated
+  corner_plus_x_plus_y: [1018.0, -105.9]   # jogged on 2026-10-06
+  corner_status: measured
+  plus_x_edge_x: 1018.0
+  rotation_about_z_deg: null               # not measured; 1 deg moves an edge ~3 mm per 170 mm
+  size_xy: null                            # unknown; the board extends towards -X and -Y from the corner
+  size_status: unknown
+
+obstacles:
+  - name: bed_clamp_plus_x_plus_y
+    center_xy: [990, -168]                 # estimated from a photo
+    top_above_bed: 72                      # measured 2026-10-17
+    distance_to_plus_y_edge: 32            # measured 2026-10-17
+    distance_to_plus_x_edge: 28.7          # measured 2026-10-17
+    status: estimated
+  # hopper, hose, cables, camera cage: unknown, to be added
+
+process:
+  print_speed_mm_s: 12
+  nozzle_diameter_mm: 3
+  layer_height_mm: [1.3, 1.5]              # 1.3 in current prints, 1.5 slicer default
+  planar_orientation_abc: [0, 90, 0]       # A0 B90 C0 in the current planar programs
+  logged_orientation_example_abc: [84.1, 89.9, 116.2]   # a logged pose near B = 90 (Euler singularity)
+
+slicer:
+  repo: https://github.com/yem-hjk6th/non_planar_slicer   # GPL-3.0: keep this repo's code a separate module
+  krl_orientation: "A = atan2(...) + 180, B = 90 - tilt, C = 0"

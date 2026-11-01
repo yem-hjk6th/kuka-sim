@@ -1,0 +1,6 @@
+robot/*/meshes/*.STL
+robot/*/meshes/*.stl
+__pycache__/
+*.pyc
+.venv/
+out/
