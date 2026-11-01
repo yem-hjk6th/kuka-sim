@@ -28,7 +28,8 @@ planner:
 
 collision:
   bed_gap_mm: 5.0            # required clearance of every robot/tool primitive to the bed top
-  tip_free_mm: 10.0          # last part of the nozzle that is allowed to be near the bed/print
+  tip_free_mm: 10.0          # last part of the nozzle that is allowed to be near the bed/print (not near clamps)
+  tip_radius: 3.0            # that last part, checked against the clamps only
   clamp_inflate_mm: 20.0     # added to every clamp box (photo estimates are +-15-30 mm)
   clamp_half_xy: [30, 30]    # toggle clamp footprint half size (estimated)
   clamp_default_height: 72   # used when a clamp's height is unknown (the one measured clamp is 72 above the bed)

@@ -8,6 +8,32 @@ from pathlib import Path
 REPO = Path(__file__).resolve().parent.parent
 
 
+FINDINGS = """## Findings
+
+- **Bed centre: no limit from tilt.** All four surfaces plan as one continuous segment for every tilt cap
+  from 0 to 60 deg (that is, up to the full surface normal, 38-46 deg). At the default cap the joint-limit margin stays >= 19 deg
+  and |A5| >= 28 deg. Runtime is 10-15 s per path of ~1400 points on one CPU core
+  (about 70 % building states (IK + collision), 30 % DP).
+- **Toward the edges, the clamps decide, not the tilt.** Every gap in the quadrant runs is a clamp
+  collision, except one short out-of-reach stretch near the +X/-Y corner (dome). Raising the cap
+  from 0 to 45 deg costs up to 9 % more of the path (dome at -X), because a tilted tool body sweeps
+  further sideways into the clamp boxes.
+- **The -X clamp pair blocks a band along the whole -X edge** because its Y positions are unknown, so it is
+  modelled as a strip over the full edge. The -X/-Y and -X/+Y results are identical for this reason.
+  Measuring the Y of those two clamps would free most of that band.
+- **The perimeter path (bed outline inset 40 mm) is 56 % plannable**, cut into 3 pieces at the
+  three modelled clamp locations.
+- **The DP sometimes turns the nozzle a lot.** On the dome it rotates by 215 deg about the nozzle axis
+  within 75 mm of path (s = 1230-1305 mm, at most 5 deg per waypoint, A4 step <= 5.2 deg). This is
+  inside every hard limit and cheap under the joint-space smoothness cost, but it would wind the hose.
+  A cost on the redundancy angle's rate, or a cap on it, is the obvious knob (`max_dbin`, weights in
+  `config/planner.yaml`).
+- **On flat or gently curved paths the chosen angle is nearly constant** (sine 90-100 deg, ramp 90 deg:
+  tool +Z towards BASE -Y), away from the 0 deg of the planar programs (A0 B90 C0). With the default weights
+  any angle well inside the limits costs almost the same, so this choice is arbitrary to within the window.
+"""
+
+
 def fmt_tilts(d):
     ok = [int(t) for t, v in d.items() if v["complete"]]
     allt = [int(t) for t in d]
@@ -70,7 +96,8 @@ def main(res_dir="results"):
     L.append("")
     if "locations" in s:
         L.append("### Same surfaces moved to the bed quadrants\n")
-        L.append("Planned share of the path per tilt cap; `x` marks a complete plan. Reasons for the gaps in brackets.\n")
+        L.append("Planned share of the path per tilt cap; `x` marks a complete plan. The last column lists the reasons for the gaps. "
+             "These patches reach to 10 mm from the bed edges, so they overlap the clamp boxes on purpose.\n")
         tilts = None
         for key, sd in s["locations"].items():
             tilts = list(next(iter(sd.values())).keys())
@@ -84,11 +111,17 @@ def main(res_dir="results"):
                 L.append(f"| {key} | {n} | " + " | ".join(cells) + f" | {'; '.join(reasons) or '-'} |")
         L.append("")
 
+    L.append(FINDINGS)
     tw = s["turn_window"]
     L.append("## Continuous turn about the nozzle axis\n")
     L.append("Longest rotation about the nozzle axis that can be swept continuously at a fixed point "
              "(5 deg bins, at most 10 deg per joint between bins, limits with margin, collisions), "
              f"on a 40 mm grid over the bed. Bed centre, vertical nozzle: {s['turn_window_center'][0]:.0f} deg.\n")
+    L.append("`tilt30 +x` means the nozzle (tool +X) is tilted 30 deg from straight down towards BASE +X, "
+             "i.e. the tip points away from the robot. Values over 360 deg use the second A6 turn.\n")
+    L.append("At the bed centre the window is set by A5 = +-120 deg (+-118 with the margin): with A5 widened "
+             "to +-180 and collisions off it becomes a full 360 deg. Collisions do not shrink it there. "
+             "This matches the earlier 235-285 deg.\n")
     L.append("| nozzle | median | max | grid points with no feasible angle |")
     L.append("|---|---|---|---|")
     for k, v in tw.items():

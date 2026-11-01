@@ -140,3 +140,14 @@ def test_no_robot_communication_code():
         text = f.read_text().lower()
         for b in banned:
             assert b not in text, (f.name, b)
+
+
+def test_tip_inside_clamp_is_a_collision(setup):
+    """The tip is exempt from the bed (it prints there) but never from a clamp."""
+    cfg, robot, pl = setup
+    from kukasim.planner import diagnose_point
+    clamp = next(b for b in pl.coll.boxes if b.name == "clamp_plus_x_minus_y")
+    inside = np.array([*(0.5 * (clamp.lo + clamp.hi))[:2], clamp.hi[2] - 5.0])
+    d = diagnose_point(pl, inside, np.array([0, 0, -1.0]))
+    assert d["in_limits_with_margin"] > 0 and d["collision_free"] == 0
+    assert d["blocking"] == "clamp_plus_x_minus_y"

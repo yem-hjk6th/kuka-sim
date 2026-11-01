@@ -75,6 +75,8 @@ class CollisionModel:
             ("tool_barrel", np.array([-t["barrel_back_mm"] + rb, ty, tz]),
              np.array([nz0 - rb, ty, tz]), rb),
             ("tool_nozzle", np.array([nz0, ty, tz]), np.array([max(nz1, nz0), ty, tz]), rn),
+            # The tip itself: exempt from the bed/floor (it prints there) but not from clamps.
+            ("tool_tip", np.array([max(nz1, nz0), ty, tz]), np.array([tx, ty, tz]), cp.get("tip_radius", 3.0)),
         ]
         self.radii = np.array([lr["link1"], lr["upper_arm"], lr["forearm"], lr["wrist"]]
                               + [c[3] for c in self.tool_caps], float)
@@ -130,6 +132,7 @@ class CollisionModel:
         caps = self.capsules(q)                      # (N, M, 2, 3)
         out = np.full(q.shape[0], np.inf)
         detail = {}
+        tip = np.array([n == "tool_tip" for n in self.names])
         for box in self.boxes:
             # cheap lower bound: distance between the segment's AABB and the box
             gap = np.maximum(np.maximum(box.lo - caps.max(-2), caps.min(-2) - box.hi), 0.0)
@@ -139,11 +142,14 @@ class CollisionModel:
             if near.any():
                 d = self.segment_box_distance(caps[near], box.lo, box.hi)
                 margin[near] = d - self.radii[np.nonzero(near)[1]] - box.required_clearance
+            if box.name == "bed":
+                margin[:, tip] = np.inf
             m = margin.min(axis=1)
             detail[box.name] = m
             out = np.minimum(out, m)
         if np.isfinite(self.floor_z):
             zmin = caps[..., 2].min(-1) - self.radii
+            zmin[:, tip] = np.inf
             m = (zmin - self.floor_z).min(axis=1)
             detail["floor"] = m
             out = np.minimum(out, m)
