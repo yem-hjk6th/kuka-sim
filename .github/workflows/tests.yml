@@ -6,15 +6,34 @@ on:
 
 jobs:
   pytest:
+    name: pytest (python ${{ matrix.python-version }}, ${{ matrix.deps }})
     runs-on: ubuntu-latest
     strategy:
+      fail-fast: false
       matrix:
-        python-version: ["3.11", "3.13"]
+        include:
+          # latest versions allowed by requirements.txt
+          - python-version: "3.11"
+            deps: latest
+            pins: ""
+          - python-version: "3.13"
+            deps: latest
+            pins: ""
+          # oldest numpy allowed by requirements.txt (numpy >= 1.26), with
+          # scipy / matplotlib of the same period
+          - python-version: "3.11"
+            deps: numpy 1.26.0
+            pins: "numpy==1.26.0 scipy==1.11.4 matplotlib==3.8.4"
+          # numpy 2.1.x (the version of the reported wrist-singularity failure)
+          - python-version: "3.12"
+            deps: numpy 2.1.3
+            pins: "numpy==2.1.3 scipy==1.15.3"
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-python@v5
         with:
           python-version: ${{ matrix.python-version }}
           cache: pip
-      - run: pip install -r requirements.txt
+      - run: pip install -r requirements.txt ${{ matrix.pins }}
+      - run: python -c "import numpy, scipy, matplotlib; print('numpy', numpy.__version__, 'scipy', scipy.__version__, 'matplotlib', matplotlib.__version__)"
       - run: pytest -q

@@ -12,7 +12,8 @@ IK returns every configuration: 2 (shoulder / overhead) x 2 (elbow) x 2 (wrist
 flip) x 2 (A4 turn) x 2 (A6 turn) = 32 slots, with a validity mask. A1, A2, A3
 and A5 have ranges narrower than 360 deg, so at most one representation is in
 range; A4 (+-185) and A6 (+-350) can have two, which is the turn ambiguity and
-is enumerated explicitly.
+is enumerated explicitly. A slot is valid only if FK of it reproduces the
+target (tolerance in Robot.ik_flange).
 """
 from __future__ import annotations
 
@@ -155,11 +156,33 @@ class Robot:
         return T_flange[..., :3, 3] - self.d6 * T_flange[..., :3, 2]
 
     # ------------------------------------------------------------------ IK
-    def ik_flange(self, T_flange, limits=None):
+    # Acceptance tolerance of the FK check in ik / ik_flange (see ik_flange).
+    IK_TOL_POS_MM = 1e-6
+    IK_TOL_ROT = 1e-9          # max |R_fk - R_target| element, ~ rotation angle in rad
+    # |cos(A5 + 90 deg)| below which the wrist is treated as exactly singular
+    # and A4 is set to 0 (orientation error of that choice <= this value, rad).
+    WRIST_SING_TOL = 1e-10
+
+    def ik_flange(self, T_flange, limits=None, verify=True):
         """All IK solutions for flange poses (N,4,4) in the robot root.
 
-        Returns q (N, 32, 6) rad and valid (N, 32) bool (reachable and inside
-        ``limits`` (6,2) rad, default: the configured joint limits).
+        Returns q (N, 32, 6) rad and valid (N, 32) bool: reachable, inside
+        ``limits`` (6,2) rad (default: the configured joint limits) and, with
+        ``verify``, FK of the solution reproduces the target pose.
+
+        FK acceptance tolerance: position <= IK_TOL_POS_MM = 1e-6 mm and every
+        element of R_fk - R_target <= IK_TOL_ROT = 1e-9 (~1e-9 rad, 6e-8 deg).
+        Why: in float64 the FK / IK round trip of this ~1 m arm is accurate to
+        ~1e-12 mm and ~1e-15 rad, also at the wrist, elbow and shoulder
+        singularities with the decomposition below (worst case 1e-10 rad from
+        setting A4 = 0 when |cos(A5 + 90 deg)| < WRIST_SING_TOL), so legitimate
+        solutions pass with >= 1 order (typically >= 3) of margin, while a
+        wrong branch or a wrong A4 / A6 split is off by orders more (the
+        reported failure: 66-83 mm). At 1e-9 rad the TCP of TOOL 3 (~240 mm
+        from the flange) moves < 1e-6 mm, far below anything physical.
+        Targets must be proper rigid transforms (orthonormal R to ~1e-12). The check is the
+        final arbiter, so a numerically degenerate case can only drop a
+        solution, never return a wrong one as valid.
         """
         T = np.asarray(T_flange, float).reshape(-1, 4, 4)
         lim = self.limits if limits is None else np.asarray(limits, float)
@@ -176,7 +199,10 @@ class Robot:
             u = x1 - self.a1
             v = -(wc[:, 2] - self.d1)
             c2 = (u * u + v * v - self.a2 ** 2 - self.a3 ** 2) / (2 * self.a2 * self.a3)
-            reach = np.abs(c2) <= 1.0
+            # A stretched / folded arm can come out at |c2| slightly > 1 from
+            # rounding (or a target < 1e-6 mm outside the reach); keep it
+            # (clipped) and let the FK check decide. 1e-9 in c2 is ~3e-4 mm.
+            reach = np.abs(c2) <= 1.0 + 1e-9
             c2 = np.clip(c2, -1, 1)
             for e in range(2):
                 t2 = np.arccos(c2) * (1 if e == 0 else -1)
@@ -184,20 +210,25 @@ class Robot:
                 q2, q3 = t1, t2 + self.delta3
                 # R03 = Rz(-q1) Ry(q2 + q3)
                 R03 = axis_angle((0, 0, -1), q1) @ axis_angle((0, 1, 0), q2 + q3)
-                M = np.swapaxes(R03, -1, -2) @ R      # = Rx(-q4) Ry(q5 + pi/2) Rz(-q6)
-                sb = np.clip(M[:, 0, 2], -1, 1)
-                cb_abs = np.sqrt(np.maximum(0.0, 1 - sb * sb))
+                M = np.swapaxes(R03, -1, -2) @ R      # = Rx(a) Ry(b) Rz(c), a = -q4, b = q5 + pi/2, c = -q6
+                # |cos b| from the third column (accurate to ~1e-16 absolute);
+                # sqrt(1 - sin^2 b) is not: sin b = 1 - 1 ulp gives 1.5e-8.
+                cb_abs = np.hypot(M[:, 1, 2], M[:, 2, 2])
+                sing = cb_abs < self.WRIST_SING_TOL
                 for w in range(2):
-                    cb = cb_abs * (1 if w == 0 else -1)
-                    sing = cb_abs < 1e-9
-                    cbs = np.where(sing, 1.0, cb)
-                    a = np.arctan2(-M[:, 1, 2] / cbs, M[:, 2, 2] / cbs)
-                    c = np.arctan2(-M[:, 0, 1] / cbs, M[:, 0, 0] / cbs)
-                    # At the wrist singularity only a + c (sb > 0) or c - a (sb < 0)
-                    # is defined; then M = Ry(+-90) Rz(phi) and A4 is set to 0.
-                    a = np.where(sing, 0.0, a)
-                    c = np.where(sing, np.arctan2(M[:, 1, 0], M[:, 1, 1]), c)
-                    b = np.arctan2(sb, cb)
+                    sgn_w = 1.0 if w == 0 else -1.0
+                    # a from column 2 (M12 = -sin a cos b, M22 = cos a cos b);
+                    # at the singularity only a + c / c - a is defined: A4 = 0.
+                    a = np.where(sing, 0.0, np.arctan2(-sgn_w * M[:, 1, 2], sgn_w * M[:, 2, 2]))
+                    # b and c from Rx(-a) M = Ry(b) Rz(c), using the a just
+                    # chosen, so a, b, c are consistent even when a comes from
+                    # rounding noise near the singularity.
+                    ca, sa = np.cos(a), np.sin(a)
+                    n1 = ca[:, None] * M[:, 1, :] + sa[:, None] * M[:, 2, :]   # row 1: (sin c, cos c, ~0)
+                    n2 = -sa[:, None] * M[:, 1, :] + ca[:, None] * M[:, 2, :]  # row 2: (-sb cc, sb sc, cb)
+                    c = np.arctan2(n1[:, 0], n1[:, 1])
+                    b = np.arctan2(M[:, 0, 2], n2[:, 2])
+                    # (exactly singular: both wrist-flip slots give the same solution)
                     q4, q5, q6 = -a, b - np.pi / 2, -c
                     base = np.stack([q1, q2, q3, q4, q5, q6], -1)
                     base = wrap_pi(base)
@@ -222,13 +253,36 @@ class Robot:
                             v_ok &= (qq[:, 5] >= lim[5, 0]) & (qq[:, 5] <= lim[5, 1])
                             q[:, s, e, w, t4, t6] = qq
                             ok[:, s, e, w, t4, t6] = v_ok
-        return q.reshape(N, N_SLOTS, 6), ok.reshape(N, N_SLOTS)
+        q = q.reshape(N, N_SLOTS, 6)
+        ok = ok.reshape(N, N_SLOTS)
+        if verify:
+            ok &= self._fk_matches(self.fk_flange, q, ok, T)
+        return q, ok
+
+    def _fk_matches(self, fk, q, ok, T):
+        """(N, 32) bool: FK of q reproduces T (N,4,4) within the IK tolerances
+        (False where ``ok`` is already False)."""
+        good = np.zeros(ok.shape, bool)
+        if ok.any():
+            F = fk(q[ok])
+            Tr = np.broadcast_to(T[:, None], ok.shape + (4, 4))[ok]
+            dp = np.abs(F[:, :3, 3] - Tr[:, :3, 3]).max(-1)
+            dr = np.abs(F[:, :3, :3] - Tr[:, :3, :3]).max((-1, -2))
+            good[ok] = (dp <= self.IK_TOL_POS_MM) & (dr <= self.IK_TOL_ROT)
+        return good
 
     def ik(self, T_tcp_in_base, limits=None):
-        """IK for TCP poses given in BASE (TOOL applied)."""
+        """IK for TCP poses given in BASE (TOOL applied).
+
+        A slot is marked valid only if it is inside the limits and FK of the
+        solution (TCP in BASE) reproduces the target within IK_TOL_POS_MM =
+        1e-6 mm and IK_TOL_ROT = 1e-9 per rotation-matrix element (see
+        ik_flange for why)."""
         T = np.asarray(T_tcp_in_base, float).reshape(-1, 4, 4)
         T_flange = self.T_base @ T @ self.T_tool_inv
-        return self.ik_flange(T_flange, limits)
+        q, ok = self.ik_flange(T_flange, limits, verify=False)
+        ok &= self._fk_matches(self.fk, q, ok, T)
+        return q, ok
 
     # --------------------------------------------------- KUKA S / T bits
     def turn_bits(self, q):
