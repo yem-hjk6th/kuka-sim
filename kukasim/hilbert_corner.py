@@ -54,7 +54,7 @@ from dataclasses import dataclass, field
 import numpy as np
 
 from .collision import keep_out_boxes
-from .first_ptp import StartPoseError, plan_first_ptp
+from .first_ptp import CASE_BOUND, CASE_NONE, StartPoseError, plan_first_ptp
 from .krl import NOT_RUN, fang, fnum, krl_name, lin_pose, ptp_axes
 from .planner import Planner, tcp_poses
 from .rotations import matrix_to_abc
@@ -382,6 +382,8 @@ class CornerTest:
     plan: object = None
     z_law: tuple = None         # (z0, kx, ky, x0, y0)
     approach_q: np.ndarray = None   # joint target (rad) of the approach PTP, from IK with the hard limits
+    first_ptp: object = None        # FirstPTP from run_checks (kukasim/first_ptp.py), None if it raised
+    first_ptp_error: str = None     # StartPoseError message from run_checks, if any
 
     @property
     def corner_ids(self):
@@ -554,6 +556,23 @@ def _check(name, ok, value, limit, detail="", severity="error"):
             "severity": severity}
 
 
+def first_ptp_check(fp):
+    """Check row for the first PTP (kukasim/first_ptp.py): passes only if the speed rule is met;
+    a program without a first PTP target fails (its first motion starts from an unknown pose)."""
+    if fp.case == CASE_NONE:
+        return _check("first PTP peak TCP speed (case 'no first PTP', kukasim/first_ptp.py)", False,
+                      "no first PTP", f"<= {fp.limit_mm_s:g} mm/s",
+                      "no approach PTP target: the first motion starts from an unknown pose (not checked)")
+    if fp.case == CASE_BOUND:
+        return _check(f"first PTP peak TCP speed (case '{fp.case}', kukasim/first_ptp.py)", fp.ok,
+                      f"{fp.peak_tcp_mm_s:.1f} mm/s at $VEL_AXIS {fp.vel_axis_pct} % (bound from any start)",
+                      f"<= {fp.limit_mm_s:g} mm/s")
+    return _check(f"first PTP peak TCP speed (case '{fp.case}', kukasim/first_ptp.py)", fp.ok,
+                  f"{fp.peak_tcp_mm_s:.1f} mm/s at $VEL_AXIS {fp.vel_axis_pct} % (worst sampled over "
+                  f"{fp.n_starts} starts in the tolerance box, not a bound)",
+                  f"<= {fp.sample_limit_mm_s:g} mm/s ({1 - fp.margin:g} x {fp.limit_mm_s:g})")
+
+
 def run_checks(ct, cfg, robot, pl):
     p = ct.params
     P = ct.dense["P"]
@@ -640,14 +659,15 @@ def run_checks(ct, cfg, robot, pl):
             ct.approach_q = Q[0, k[np.argmin(np.abs(Q[0, k] - ref[0]).max(1))]]
     checks.append(_check("lifted start / end poses feasible with the hard limits (the path of the first PTP is "
                          "not collision-checked)", all(end_ok), f"start {end_ok[0]}, end {end_ok[1]}", "both"))
+    ct.first_ptp, ct.first_ptp_error = None, None
     try:
-        fp = first_ptp(ct, robot, cfg)
-        checks.append(_check(f"first PTP peak TCP speed (case '{fp.case}', kukasim/first_ptp.py)",
-                             fp.peak_tcp_mm_s <= fp.limit_mm_s,
-                             f"{fp.peak_tcp_mm_s:.1f} mm/s at $VEL_AXIS {fp.vel_axis_pct} %",
-                             f"<= {fp.limit_mm_s:g} mm/s"))
+        fp = ct.first_ptp = first_ptp(ct, robot, cfg)
     except StartPoseError as e:
-        checks.append(_check("first PTP peak TCP speed (kukasim/first_ptp.py)", False, "n/a", "", str(e)))
+        ct.first_ptp_error = str(e)
+        checks.append(_check("first PTP peak TCP speed (kukasim/first_ptp.py)", False, "n/a", "",
+                             f"{e}; no .src written"))
+    else:
+        checks.append(first_ptp_check(fp))
     # speeds
     v_s = p["straight_speed_mm_s"]
     v_cmax = v_s * float(ct.r_eff.max())
@@ -814,7 +834,9 @@ def write_krl(path, ct, robot, cfg, name="hilbert_corner"):
     zdesc = f"layer Z {z0:.3f}" if kx == 0 and ky == 0 else \
         f"layer Z = {z0:.3f} + {kx:g} (X - {x0:.1f}) + {ky:g} (Y - {y0:.1f}) ({zr[0]:.3f}..{zr[1]:.3f})"
     v_s = float(p["straight_speed_mm_s"])
-    fp = first_ptp(ct, robot, cfg)
+    if ct.first_ptp_error is not None:      # invalid declared start: failed check in report.md, no .src
+        raise StartPoseError(ct.first_ptp_error)
+    fp = ct.first_ptp if ct.first_ptp is not None else first_ptp(ct, robot, cfg)
     lines = [
         NOT_RUN,
         "; This file was produced by kuka-sim (Hilbert corner test) and has never been run.",
@@ -841,9 +863,11 @@ def write_krl(path, ct, robot, cfg, name="hilbert_corner"):
     lines += [
         f"; C_DIS {p['c_dis_mm']:g} mm; KRC limits it to half the shorter adjacent segment.",
         CONTROLLER_DEFAULTS,
-        f"; Approach: PTP to {lift:g} mm above the start at $VEL_AXIS {fp.vel_axis_pct:d} % / "
-        f"$ACC_AXIS {p['approach_acc_axis_pct']:g} % (configured at most {p['approach_vel_axis_pct']:g} %); "
-        "its path is NOT collision-checked.",
+        (f"; Approach: PTP to {lift:g} mm above the start at $VEL_AXIS {fp.vel_axis_pct:d} % / "
+         f"$ACC_AXIS {p['approach_acc_axis_pct']:g} % (configured at most {p['approach_vel_axis_pct']:g} %); "
+         "its path is NOT collision-checked." if ct.approach_q is not None else
+         f"; Approach: NO approach PTP (no IK solution for the start lifted by {lift:g} mm); the first motion is "
+         "a LIN from an unknown pose, NOT checked."),
         *fp.header(),
         f"; Checks: {'passed' if ct.ok else 'FAILED - see report.md'} ({CHECKED_SCOPE})",
     ]

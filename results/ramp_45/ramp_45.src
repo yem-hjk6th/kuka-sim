@@ -17,12 +17,14 @@
 ;   from the bed (they start on the print), PTP and lift / lower with the tip included.
 ; The path of the first PTP (from the pose the robot is in) is NOT collision-checked.
 ; First PTP (from the pose the robot is in when the program starts): case 'declared start'.
-;   No start-independent bound: even at $VEL_AXIS 1 % the bound is 236.9 mm/s > 80 mm/s
-;   (sum_i 1 % x axis max speed x r_i, r_i = 1429, 1404, 844, 330, 327, 226 mm, axis to tool tip; URDF axis maxima).
+;   No start-independent $VEL_AXIS: sampled synchronous PTPs at $VEL_AXIS 1 % between random poses
+;   inside the joint limits reach 117.6 mm/s > 80 mm/s (sampled evidence; the upper bound
+;   sum_i 1 % x axis max speed x r_i is 236.9 mm/s, r_i = 1429, 1404, 844, 330, 327, 226 mm, axis to tool tip; URDF axis maxima).
 ;   THE ROBOT MUST BE AT THE DECLARED START POSE {A1 0, A2 -90, A3 90, A4 0, A5 0, A6 0}
 ;   (within +-1 deg on every axis) BEFORE THIS PROGRAM STARTS.
 ;   From there: $VEL_AXIS[1..6] = 1 %, $ACC_AXIS[1..6] = 10 %; model peak TCP speed of the first PTP 51.3 mm/s
-;   (worst over the start and the 64 tolerance-box corners; 49.8 mm/s from the start itself) <= 80 mm/s.
+;   (worst sampled over 985 starts in the tolerance box, NOT a bound; 49.8 mm/s from the start itself)
+;   <= 72 mm/s = (1 - 0.1 margin for unsampled starts) x 80 mm/s.
 ;   Model estimate (transit speed model), not controller output. From any other pose the speed
 ;   is not bounded by this program.
 ; FLAGS: none

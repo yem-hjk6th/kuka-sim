@@ -51,16 +51,7 @@ def test_axis_tip_radii_bound_the_sampled_distances(cell):
     assert fpm.tcp_speed_bound(robot, 1) == pytest.approx(236.9, abs=0.05)
 
 
-def _sync_ptp_peak(robot, q0, q1, pct=100.0, n=400):
-    """Sampled peak TCP speed (mm/s) of synchronous PTPs q0 -> q1 (M,6) at the cruise rate of the
-    leading axis at pct % of the URDF axis maxima (every axis at <= its share of its maximum)."""
-    dq = q1 - q0
-    sdot = np.min(robot.vmax * pct / 100.0 / np.maximum(np.abs(dq), 1e-15), axis=1)     # 1/s
-    s = np.linspace(0.0, 1.0, n)
-    q = q0[:, None] + s[None, :, None] * dq[:, None]
-    tip = (robot.fk_flange(q) @ robot.T_tool)[..., :3, 3]
-    dxds = np.linalg.norm(np.diff(tip, axis=1), axis=-1) * (n - 1)
-    return (dxds * sdot[:, None]).max(1)
+_sync_ptp_peak = fpm.sync_ptp_peak
 
 
 def test_brute_force_random_starts_never_exceed_the_bound(cell):
@@ -86,6 +77,15 @@ def test_brute_force_random_starts_never_exceed_the_bound(cell):
         bound = fpm.tcp_speed_bound(robot, pct)
         assert peak.max() <= bound, (pct, peak.max(), bound)
         assert peak.max() >= 0.3 * bound          # the samples do reach a sizeable share of it
+        if pct == 1.0:
+            peak_1pct = peak[:3000].max()         # the 3000 random pairs (fpm.random_start_peak)
+    # Review item 2: the declared-start case is NEEDED, not only allowed. B(1) > limit alone does not show
+    # it (B is an upper bound); the sampled peak at $VEL_AXIS 1 % does: some starts are above the limit.
+    tp = cfg.planner["transit"]
+    lim = tp["speed_safety_factor"] * tp["max_tcp_speed_mm_s"]
+    assert peak_1pct == pytest.approx(fpm.random_start_peak(robot, 1.0))
+    assert peak_1pct == pytest.approx(117.6, abs=0.05)       # the number in RESULTS.md and the headers
+    assert peak_1pct > lim, (peak_1pct, lim)
     # the bound grows linearly with $VEL_AXIS
     assert fpm.tcp_speed_bound(robot, 7) == pytest.approx(7 * fpm.tcp_speed_bound(robot, 1))
 
@@ -160,14 +160,18 @@ def test_header_case_declared_start(cell, tmp_path):
     f = rep["first_ptp"]
     assert f["case"] == "declared start"
     assert f["start_axis_deg"] == tp["start_axis"] and f["start_tolerance_deg"] == tp["start_tolerance_deg"]
-    assert f["peak_tcp_mm_s"] <= lim and f["peak_tcp_nominal_start_mm_s"] <= f["peak_tcp_mm_s"]
+    assert f["peak_tcp_mm_s"] <= f["sample_limit_mm_s"] == (1 - tp["start_sample_margin"]) * lim
+    assert f["peak_tcp_nominal_start_mm_s"] <= f["peak_tcp_mm_s"]
     vel = _vel_before(lines, k)
     assert vel == [f["vel_axis_pct"]] * 6
     head = "\n".join(ln for ln in lines if ln.startswith(";"))
     s = ", ".join(f"A{i + 1} {v:g}" for i, v in enumerate(tp["start_axis"]))
     assert f"THE ROBOT MUST BE AT THE DECLARED START POSE {{{s}}}" in head
     assert f"within +-{tp['start_tolerance_deg']:g} deg on every axis" in head
-    assert f"even at $VEL_AXIS 1 % the bound is {fpm.tcp_speed_bound(robot, 1):.1f} mm/s" in head
+    assert f"the upper bound\n;   sum_i 1 % x axis max speed x r_i is {fpm.tcp_speed_bound(robot, 1):.1f} mm/s" \
+        in head
+    assert f"reach {fpm.random_start_peak(robot, 1.0):.1f} mm/s > {lim:g} mm/s (sampled evidence" in head
+    assert f"worst sampled over {f['sampled_starts']} starts in the tolerance box, NOT a bound" in head
     assert f"model peak TCP speed of the first PTP {f['peak_tcp_mm_s']:.1f} mm/s" in head
     assert "DECLARED START" in lines[k]
     # re-compute with the transit model from the declared start to the exported target
@@ -190,3 +194,108 @@ def test_committed_programs_state_the_first_ptp_case():
         assert t.startswith(NOT_RUN)
         assert re.search(r"First PTP .*: case '(bound|declared start)'", t), f
         assert re.search(r"peak TCP speed of the first PTP (<= )?[\d.]+ mm/s", t, re.I), f
+        # review item 1: a sampled peak is worded as a sample, never as the worst over the box
+        assert "worst over" not in t and "64 tolerance-box corners" not in t, f
+        if "declared start" in t:
+            assert re.search(r"worst sampled over \d+ starts in the tolerance box, NOT a bound", t), f
+    for doc in (REPO / "RESULTS.md", REPO / "results" / "hilbert_corner" / "report.md"):
+        t = doc.read_text()
+        assert "worst over the tolerance box" not in t and "so no start-independent bound exists" not in t
+    assert "worst sampled over 985 starts in the box, not a bound" in (REPO / "RESULTS.md").read_text()
+
+
+def test_tolerance_box_is_sampled_inside_not_only_at_the_corners(cell):
+    """Review item 1: the 64 corners of the tolerance box are a sample, not a bound. For this target the
+    leading axis changes inside the box and interior starts are faster than every corner, so the first
+    PTP is evaluated over the 3^6 grid plus random interior points, and the worst sampled peak must stay
+    <= (1 - margin) x limit."""
+    cfg, robot, _ = cell
+    tp = cfg.planner["transit"]
+    start, tol = np.array(tp["start_axis"], float), float(tp["start_tolerance_deg"])
+    S = fpm.box_starts(start, tol)
+    assert S.shape == (3 ** 6 + fpm.BOX_RANDOM, 6) and (S[0] == start).all()
+    assert (np.abs(S - start) <= tol + 1e-12).all()
+    corner = np.all(np.isclose(np.abs(S - start), tol), axis=1)
+    assert corner.sum() == 64
+    assert len({tuple(r) for r in np.round(S, 9)}) == len(S)          # no duplicates
+    qt = np.radians(start + [0.412, -2.231, -3.393, 4.699, 0.161, -3.841])
+    tpl = TransitPlanner(robot, cfg, None, robot.limits)
+    step = np.radians(tp["ptp_sample_deg"])
+
+    def peak(q0):
+        n = int(np.ceil(np.abs(qt - q0).max() / step)) + 1
+        return tpl.ptp_speed(q0 + np.linspace(0, 1, max(n, 2))[:, None] * (qt - q0), 1, tp["acc_axis_pct"])[0]
+
+    pk = np.array([peak(q0) for q0 in np.radians(S)])
+    assert pk[~corner].max() > pk[corner].max() + 1.0, (pk[~corner].max(), pk[corner].max())
+    fp = fpm.plan_first_ptp(robot, cfg, qt, tp["acc_axis_pct"])
+    assert fp.case == fpm.CASE_DECLARED and fp.n_starts == len(S)
+    assert fp.peak_tcp_mm_s == pytest.approx(pk.max()) and fp.peak_nominal_mm_s == pytest.approx(pk[0])
+    assert fp.ok and fp.peak_tcp_mm_s <= fp.sample_limit_mm_s == pytest.approx(0.9 * fp.limit_mm_s)
+    # independent check: random interior starts with another seed stay below the (unreduced) limit
+    rnd = np.radians(start + tol * np.random.default_rng(99).uniform(-1, 1, size=(300, 6)))
+    assert max(peak(q0) for q0 in rnd) <= fp.limit_mm_s
+    # with a margin that leaves no room the same target is rejected, not silently accepted
+    tight = load_config(planner_overrides={"transit": {"start_sample_margin": 1 - (pk.max() - 0.5) / fp.limit_mm_s}})
+    with pytest.raises(fpm.StartPoseError):
+        fpm.plan_first_ptp(robot, tight, qt, tp["acc_axis_pct"])
+
+
+def test_no_first_ptp_target_is_not_reported_as_checked(cell):
+    """Review item 4: a program without a first PTP target states that there is none and that the first
+    motion starts from an unknown pose; no "peak 0.0 mm/s <= limit" and the check row fails."""
+    from kukasim import hilbert_corner as hc
+    cfg, robot, _ = cell
+    for c in (cfg, load_config(planner_overrides={"transit": {"max_tcp_speed_mm_s": 1000}})):   # declared / bound
+        fp = fpm.plan_first_ptp(robot, c, None, 10)
+        assert fp.case == fpm.CASE_NONE and not fp.ok and fp.peak_tcp_mm_s is None
+        head = "\n".join(fp.header())
+        assert "NO FIRST PTP" in head and "UNKNOWN" in head and "NOT checked" in head
+        assert "0.0 mm/s" not in head and "<=" not in head
+        s = fp.summary()
+        assert s["peak_tcp_mm_s"] is None and s["ok"] is False and "not checked" in s["peak_kind"]
+        row = hc.first_ptp_check(fp)
+        assert row["ok"] is False and row["value"] == "no first PTP" and "unknown pose" in row["detail"]
+
+
+def test_invalid_start_pose_is_a_failed_check_in_report_md(tmp_path):
+    """Review item 3: a StartPoseError in the Hilbert generator reaches report.md as a failed check
+    row; no .src is written and the script exits with 1."""
+    import sys
+    sys.path.insert(0, str(REPO / "scripts"))
+    import run_hilbert_corner
+    out = tmp_path / "hc"
+    out.mkdir()
+    (out / "hilbert_corner.src").write_text("stale\n")              # a stale program must not survive
+    bad = load_config(planner_overrides={"transit": {"start_axis": [0, -90, 90, 0, 0, 350]}})
+    assert run_hilbert_corner.main(["--out", str(out)], cfg=bad) == 1
+    assert not (out / "hilbert_corner.src").exists()
+    rep = (out / "report.md").read_text()
+    row = next(ln for ln in rep.splitlines() if "first PTP peak TCP speed" in ln)
+    assert "FAIL" in row.upper() and "outside the joint limits" in row and "no .src written" in row
+    assert "hilbert_corner.src" in rep and "NOT written" in rep
+
+
+def test_export_csv_guard_checks_every_column(tmp_path):
+    """Review item 5: export_krl.py replaces trajectory.csv only if every column matches the committed
+    file to the number format (A / C modulo 360), not only the joint angles."""
+    import sys
+    sys.path.insert(0, str(REPO / "scripts"))
+    from export_krl import csv_differences
+    src = REPO / "results" / "dome" / "trajectory.csv"
+    rows = src.read_text().splitlines()
+    head = rows[0].split(",")
+    a, b = tmp_path / "a.csv", tmp_path / "b.csv"
+    a.write_text("\n".join(rows) + "\n")
+
+    def changed(col, value):
+        r = rows[1].split(",")
+        r[head.index(col)] = value
+        b.write_text("\n".join([rows[0], ",".join(r)] + rows[2:]) + "\n")
+        return csv_differences(a, b)
+
+    assert changed("A1", rows[1].split(",")[head.index("A1")]) == []
+    c = float(rows[1].split(",")[head.index("A")])
+    assert changed("A", f"{c + 360 if c <= 0 else c - 360:.4f}") == []      # wrap only: format
+    assert changed("x", "0.000") and changed("clearance_mm_capped50", "1.00") and changed("ik_slot", "7")
+    assert changed("node_cost", "9.00000") and changed("S_unverified", "6")

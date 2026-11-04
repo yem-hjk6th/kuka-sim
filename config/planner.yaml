@@ -85,7 +85,10 @@ transit:
                              # A4 0, A5 0, A6 0}), the pose of test_home_pose_flange; the cell's own home / start
                              # pose is not known (not read from the controller): replace it before any run
   start_tolerance_deg: 1.0   # the robot must be within this of start_axis on every axis; the first-PTP speed is
-                             # checked from the start and from all 64 corners of this tolerance box
+                             # evaluated from a SAMPLE of starts in this tolerance box (the 3^6 grid at -tol, 0,
+                             # +tol plus 256 random interior points, fixed seed; kukasim/first_ptp.py), not a bound
+  start_sample_margin: 0.1   # the worst sampled peak must be <= (1 - margin) x k x max_tcp_speed_mm_s
+                             # (0.9 x 80 = 72 mm/s), a reserve for starts between the samples
 
 # Corner test (kukasim/hilbert_corner.py, scripts/run_hilbert_corner.py): one planar Hilbert
 # curve, fixed extruder rpm, a different speed-override ratio at every corner.

@@ -62,7 +62,9 @@
      "vel_axis_pct": 1,
      "acc_axis_pct": 10,
      "peak_tcp_mm_s": 41.3,
+     "peak_kind": "worst sampled over 985 starts in the tolerance box (not a bound)",
      "limit_mm_s": 80.0,
+     "ok": true,
      "axis_tip_radii_mm": [
       1428.6,
       1403.6,
@@ -72,6 +74,7 @@
       225.6
      ],
      "bound_at_1pct_mm_s": 236.9,
+     "sampled_random_start_peak_1pct_mm_s": 117.6,
      "start_axis_deg": [
       0.0,
       -90.0,
@@ -81,6 +84,9 @@
       0.0
      ],
      "start_tolerance_deg": 1.0,
+     "sampled_starts": 985,
+     "sample_margin": 0.1,
+     "sample_limit_mm_s": 72.0,
      "peak_tcp_nominal_start_mm_s": 40.3
     }
    }
@@ -146,7 +152,9 @@
      "vel_axis_pct": 1,
      "acc_axis_pct": 10,
      "peak_tcp_mm_s": 44.7,
+     "peak_kind": "worst sampled over 985 starts in the tolerance box (not a bound)",
      "limit_mm_s": 80.0,
+     "ok": true,
      "axis_tip_radii_mm": [
       1428.6,
       1403.6,
@@ -156,6 +164,7 @@
       225.6
      ],
      "bound_at_1pct_mm_s": 236.9,
+     "sampled_random_start_peak_1pct_mm_s": 117.6,
      "start_axis_deg": [
       0.0,
       -90.0,
@@ -165,6 +174,9 @@
       0.0
      ],
      "start_tolerance_deg": 1.0,
+     "sampled_starts": 985,
+     "sample_margin": 0.1,
+     "sample_limit_mm_s": 72.0,
      "peak_tcp_nominal_start_mm_s": 43.4
     }
    }
@@ -230,7 +242,9 @@
      "vel_axis_pct": 1,
      "acc_axis_pct": 10,
      "peak_tcp_mm_s": 50.7,
+     "peak_kind": "worst sampled over 985 starts in the tolerance box (not a bound)",
      "limit_mm_s": 80.0,
+     "ok": true,
      "axis_tip_radii_mm": [
       1428.6,
       1403.6,
@@ -240,6 +254,7 @@
       225.6
      ],
      "bound_at_1pct_mm_s": 236.9,
+     "sampled_random_start_peak_1pct_mm_s": 117.6,
      "start_axis_deg": [
       0.0,
       -90.0,
@@ -249,6 +264,9 @@
       0.0
      ],
      "start_tolerance_deg": 1.0,
+     "sampled_starts": 985,
+     "sample_margin": 0.1,
+     "sample_limit_mm_s": 72.0,
      "peak_tcp_nominal_start_mm_s": 49.1
     }
    }
@@ -314,7 +332,9 @@
      "vel_axis_pct": 1,
      "acc_axis_pct": 10,
      "peak_tcp_mm_s": 51.3,
+     "peak_kind": "worst sampled over 985 starts in the tolerance box (not a bound)",
      "limit_mm_s": 80.0,
+     "ok": true,
      "axis_tip_radii_mm": [
       1428.6,
       1403.6,
@@ -324,6 +344,7 @@
       225.6
      ],
      "bound_at_1pct_mm_s": 236.9,
+     "sampled_random_start_peak_1pct_mm_s": 117.6,
      "start_axis_deg": [
       0.0,
       -90.0,
@@ -333,6 +354,9 @@
       0.0
      ],
      "start_tolerance_deg": 1.0,
+     "sampled_starts": 985,
+     "sample_margin": 0.1,
+     "sample_limit_mm_s": 72.0,
      "peak_tcp_nominal_start_mm_s": 49.8
     }
    }
@@ -628,7 +652,9 @@
      "vel_axis_pct": 1,
      "acc_axis_pct": 10,
      "peak_tcp_mm_s": 43.8,
+     "peak_kind": "worst sampled over 985 starts in the tolerance box (not a bound)",
      "limit_mm_s": 80.0,
+     "ok": true,
      "axis_tip_radii_mm": [
       1428.6,
       1403.6,
@@ -638,6 +664,7 @@
       225.6
      ],
      "bound_at_1pct_mm_s": 236.9,
+     "sampled_random_start_peak_1pct_mm_s": 117.6,
      "start_axis_deg": [
       0.0,
       -90.0,
@@ -647,6 +674,9 @@
       0.0
      ],
      "start_tolerance_deg": 1.0,
+     "sampled_starts": 985,
+     "sample_margin": 0.1,
+     "sample_limit_mm_s": 72.0,
      "peak_tcp_nominal_start_mm_s": 42.4
     }
    }

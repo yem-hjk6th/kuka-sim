@@ -23,7 +23,7 @@ import re
 
 import numpy as np
 
-from .first_ptp import plan_first_ptp
+from .first_ptp import CASE_NONE, plan_first_ptp
 from .transit import TransitPlanner, end_moves, plan_transits
 
 NOT_RUN = "; NOT RUN - generated in simulation, never executed on a robot"
@@ -123,7 +123,9 @@ def write_krl(path, robot, res, rows, cfg, name, tplanner=None):
         "clearance_note": "move_min_clearance_mm: retract / approach LINs are checked with the tip exempt from "
                           "the bed (they start on the print); PTP and lift / lower LINs with the tip included",
         "transits": [t.summary() for t in transits],
-        "flags": [f"transit {t.seg_from}->{t.seg_to}: {f}" for t in transits for f in t.flags],
+        "flags": [f"transit {t.seg_from}->{t.seg_to}: {f}" for t in transits for f in t.flags]
+                 + ([] if fp.ok else [f"first PTP: case '{fp.case}', not checked" if fp.case == CASE_NONE
+                                      else f"first PTP: case '{fp.case}' above the limit"]),
         "before_direct_ptp": before,
         "first_ptp": fp.summary(),
     }
