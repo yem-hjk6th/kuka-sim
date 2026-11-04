@@ -8,7 +8,16 @@
 ;   path-synchronous). Speeds assume $OV_PRO 100 %; the ratios hold at any constant override.
 ; C_DIS 3 mm; KRC limits it to half the shorter adjacent segment.
 ; Assumes the controller's INI / BAS(#INITMOV,0) defaults for everything not set here ($ACC.CP, $VEL.ORI, $ACC.ORI, ...); $APO.CDIS is set explicitly.
-; Approach: PTP to 20 mm above the start at $VEL_AXIS 5 % / $ACC_AXIS 10 %; the PTP from the current pose is NOT checked.
+; Approach: PTP to 20 mm above the start at $VEL_AXIS 1 % / $ACC_AXIS 10 % (configured at most 5 %); its path is NOT collision-checked.
+; First PTP (from the pose the robot is in when the program starts): case 'declared start'.
+;   No start-independent bound: even at $VEL_AXIS 1 % the bound is 236.9 mm/s > 80 mm/s
+;   (sum_i 1 % x axis max speed x r_i, r_i = 1429, 1404, 844, 330, 327, 226 mm, axis to tool tip; URDF axis maxima).
+;   THE ROBOT MUST BE AT THE DECLARED START POSE {A1 0, A2 -90, A3 90, A4 0, A5 0, A6 0}
+;   (within +-1 deg on every axis) BEFORE THIS PROGRAM STARTS.
+;   From there: $VEL_AXIS[1..6] = 1 %, $ACC_AXIS[1..6] = 10 %; model peak TCP speed of the first PTP 52.6 mm/s
+;   (worst over the start and the 64 tolerance-box corners; 50.3 mm/s from the start itself) <= 80 mm/s.
+;   Model estimate (transit speed model), not controller output. From any other pose the speed
+;   is not bounded by this program.
 ; Checks: passed (checked against cell.yaml only; site keep-outs must be checked locally before running)
 DEF hilbert_corner()
   $BASE = $NULLFRAME
@@ -16,19 +25,19 @@ DEF hilbert_corner()
   $VEL.CP = 0.01200
   $APO.CDIS = 3
   $ORI_TYPE = #CONSTANT
-  $VEL_AXIS[1] = 5
-  $VEL_AXIS[2] = 5
-  $VEL_AXIS[3] = 5
-  $VEL_AXIS[4] = 5
-  $VEL_AXIS[5] = 5
-  $VEL_AXIS[6] = 5
+  $VEL_AXIS[1] = 1
+  $VEL_AXIS[2] = 1
+  $VEL_AXIS[3] = 1
+  $VEL_AXIS[4] = 1
+  $VEL_AXIS[5] = 1
+  $VEL_AXIS[6] = 1
   $ACC_AXIS[1] = 10
   $ACC_AXIS[2] = 10
   $ACC_AXIS[3] = 10
   $ACC_AXIS[4] = 10
   $ACC_AXIS[5] = 10
   $ACC_AXIS[6] = 10
-  PTP {A1 55.6749, A2 -36.0731, A3 108.0322, A4 57.0073, A5 -79.9426, A6 -15.0555}  ; 20 mm above the start (from the current pose: NOT checked)
+  PTP {A1 55.6749, A2 -36.0731, A3 108.0322, A4 57.0073, A5 -79.9426, A6 -15.0555}  ; 20 mm above the start; first PTP: from the DECLARED START pose (see header)
   LIN {X 535.500, Y -546.400, Z 2.250, A 0.0000, B 90.0000, C 0.0000}  ; start (exact stop)
   LIN {X 535.500, Y -509.543, Z 2.250, A 0.0000, B 90.0000, C 0.0000} C_DIS  ; zone start corner 0
   $VEL.CP = 0.00840

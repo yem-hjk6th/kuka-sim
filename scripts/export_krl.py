@@ -2,8 +2,10 @@
 
 Simulation only. Replans each surface exactly as run_step1.py does (the planner is
 deterministic), rewrites results/<surface>/<surface>.src and export_report.json,
-and updates the "export" entries of results/summary.json. Plots, CSVs and the
-tilt / location sweeps are left as they are.
+rewrites trajectory.csv (same plan, checked against the committed file to 1e-3 deg
+before anything is written; only the number format can change), and updates the
+"export" entries of results/summary.json. Plots and the tilt / location sweeps are
+left as they are.
 
     python scripts/export_krl.py --out results
 """
@@ -55,6 +57,7 @@ def main():
             if not np.allclose(np.nan_to_num(old), np.nan_to_num(np.degrees(res.q)), atol=1e-3):
                 raise SystemExit(f"{name}: plan differs from {csv_file}; run run_step1.py instead")
         rows = outputs.tcp_rows(robot, res)
+        outputs.write_csv(csv_file, robot, res, rows)
         rep = write_krl(d / f"{name}.src", robot, res, rows, cfg, name, tpl)
         (d / "export_report.json").write_text(json.dumps(rep, indent=1, default=float) + "\n")
         summary["surfaces"].setdefault(name, {})["export"] = export_summary(rep)

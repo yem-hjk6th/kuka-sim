@@ -54,7 +54,8 @@ from dataclasses import dataclass, field
 import numpy as np
 
 from .collision import keep_out_boxes
-from .krl import NOT_RUN, krl_name
+from .first_ptp import StartPoseError, plan_first_ptp
+from .krl import NOT_RUN, fang, fnum, krl_name, lin_pose, ptp_axes
 from .planner import Planner, tcp_poses
 from .rotations import matrix_to_abc
 from .toolpaths import Toolpath
@@ -637,8 +638,16 @@ def run_checks(ct, cfg, robot, pl):
         end_ok.append(bool(len(k)))
         if i == 0 and len(k) and not np.isnan(ref[0][0]):
             ct.approach_q = Q[0, k[np.argmin(np.abs(Q[0, k] - ref[0]).max(1))]]
-    checks.append(_check("lifted start / end poses feasible with the hard limits (the PTP from the current "
-                         "pose is not checked)", all(end_ok), f"start {end_ok[0]}, end {end_ok[1]}", "both"))
+    checks.append(_check("lifted start / end poses feasible with the hard limits (the path of the first PTP is "
+                         "not collision-checked)", all(end_ok), f"start {end_ok[0]}, end {end_ok[1]}", "both"))
+    try:
+        fp = first_ptp(ct, robot, cfg)
+        checks.append(_check(f"first PTP peak TCP speed (case '{fp.case}', kukasim/first_ptp.py)",
+                             fp.peak_tcp_mm_s <= fp.limit_mm_s,
+                             f"{fp.peak_tcp_mm_s:.1f} mm/s at $VEL_AXIS {fp.vel_axis_pct} %",
+                             f"<= {fp.limit_mm_s:g} mm/s"))
+    except StartPoseError as e:
+        checks.append(_check("first PTP peak TCP speed (kukasim/first_ptp.py)", False, "n/a", "", str(e)))
     # speeds
     v_s = p["straight_speed_mm_s"]
     v_cmax = v_s * float(ct.r_eff.max())
@@ -716,8 +725,8 @@ def write_waypoints_csv(path, ct, robot):
             c = ct.kinds[j] == "corner"
             fmt = lambda v, n=2: "" if v is None or not np.isfinite(v) else f"{v:.{n}f}"
             w.writerow([j, ct.kinds[j], cid[j], int(ct.vertex_index[j]), *[f"{v:.3f}" for v in ct.W[j]],
-                        *[f"{v:.4f}" for v in abc],
-                        *([f"{v:.4f}" for v in q] if q is not None else [""] * 6),
+                        fang(abc[0], 4), fnum(abc[1], 4), fang(abc[2], 4),
+                        *([fnum(v, 4) for v in q] if q is not None else [""] * 6),
                         {1: "L", -1: "R"}.get(int(ct.turn[j]), ""), f"{ct.s_w[j]:.2f}",
                         fmt(ct.seg[j - 1]) if j > 0 else "", fmt(ct.seg[j]) if j < len(ct.seg) else "",
                         fmt(ct.straight_in[j]), fmt(ct.straight_out[j]), int(ct.excluded[j]),
@@ -784,6 +793,14 @@ def _vel(v_mm_s):
     return f"  $VEL.CP = {v_mm_s / 1000.0:.5f}"
 
 
+def first_ptp(ct, robot, cfg):
+    """$VEL_AXIS of the approach PTP (the first PTP, from the pose the robot is in): see
+    kukasim/first_ptp.py. Never above approach_vel_axis_pct."""
+    p = ct.params
+    return plan_first_ptp(robot, cfg, ct.approach_q, p["approach_acc_axis_pct"],
+                          pct_max=int(p["approach_vel_axis_pct"]))
+
+
 def write_krl(path, ct, robot, cfg, name="hilbert_corner"):
     """KRL export: one LIN per waypoint (no densification, so C_DIS acts at the corners);
     in krl speed mode every corner leg is split at +-d_zone and the corner sub-segments get
@@ -797,6 +814,7 @@ def write_krl(path, ct, robot, cfg, name="hilbert_corner"):
     zdesc = f"layer Z {z0:.3f}" if kx == 0 and ky == 0 else \
         f"layer Z = {z0:.3f} + {kx:g} (X - {x0:.1f}) + {ky:g} (Y - {y0:.1f}) ({zr[0]:.3f}..{zr[1]:.3f})"
     v_s = float(p["straight_speed_mm_s"])
+    fp = first_ptp(ct, robot, cfg)
     lines = [
         NOT_RUN,
         "; This file was produced by kuka-sim (Hilbert corner test) and has never been run.",
@@ -823,8 +841,10 @@ def write_krl(path, ct, robot, cfg, name="hilbert_corner"):
     lines += [
         f"; C_DIS {p['c_dis_mm']:g} mm; KRC limits it to half the shorter adjacent segment.",
         CONTROLLER_DEFAULTS,
-        f"; Approach: PTP to {lift:g} mm above the start at $VEL_AXIS {p['approach_vel_axis_pct']:g} % / "
-        f"$ACC_AXIS {p['approach_acc_axis_pct']:g} %; the PTP from the current pose is NOT checked.",
+        f"; Approach: PTP to {lift:g} mm above the start at $VEL_AXIS {fp.vel_axis_pct:d} % / "
+        f"$ACC_AXIS {p['approach_acc_axis_pct']:g} % (configured at most {p['approach_vel_axis_pct']:g} %); "
+        "its path is NOT collision-checked.",
+        *fp.header(),
         f"; Checks: {'passed' if ct.ok else 'FAILED - see report.md'} ({CHECKED_SCOPE})",
     ]
     if not ct.ok:
@@ -837,36 +857,41 @@ def write_krl(path, ct, robot, cfg, name="hilbert_corner"):
         f"  $APO.CDIS = {p['c_dis_mm']:g}",
         "  $ORI_TYPE = #CONSTANT",
     ]
-    lines += [f"  $VEL_AXIS[{i}] = {p['approach_vel_axis_pct']:g}" for i in range(1, 7)]
+    lines += [f"  $VEL_AXIS[{i}] = {fp.vel_axis_pct:d}" for i in range(1, 7)]   # first PTP (first_ptp.py)
     lines += [f"  $ACC_AXIS[{i}] = {p['approach_acc_axis_pct']:g}" for i in range(1, 7)]
-    fmt = "  LIN {X %.3f, Y %.3f, Z %.3f, A %.4f, B %.4f, C %.4f}"
+
+    def lin(pos, abc):
+        return "  LIN " + lin_pose(pos, abc)
+
     if ct.approach_q is not None:
-        lines.append("  PTP {A1 %.4f, A2 %.4f, A3 %.4f, A4 %.4f, A5 %.4f, A6 %.4f}" % tuple(np.degrees(ct.approach_q))
-                     + f"  ; {lift:g} mm above the start (from the current pose: NOT checked)")
+        lines.append("  PTP " + ptp_axes(np.degrees(ct.approach_q))
+                     + f"  ; {lift:g} mm above the start; first PTP: "
+                     + ("speed bounded from any start pose" if fp.case == "bound"
+                        else "from the DECLARED START pose (see header)"))
     else:
         lines.append("  ; no IK solution within the hard limits for the lifted start pose: approach PTP omitted")
-        lines.append(fmt % (*(ct.W[0] + [0, 0, lift]), *rows[0][1]))
+        lines.append(lin((ct.W[0] + [0, 0, lift]), rows[0][1]))
     cid = ct.corner_ids
     for j in range(len(ct.W)):
         abc = rows[j][1]
         if ct.kinds[j] != "corner":
-            lines.append(fmt % (*ct.W[j], *abc) + f"  ; {ct.kinds[j]} (exact stop)")
+            lines.append(lin(ct.W[j], abc) + f"  ; {ct.kinds[j]} (exact stop)")
             continue
         note = f"  ; corner {cid[j]}: r {ct.r_cmd[j]:g}"
         if ct.excluded[j]:
             note += " (too close to a neighbour, r = 1)"
         if ct.mode == "pc":
-            lines.append(fmt % (*ct.W[j], *abc) + " C_DIS" + note + f", OV {ct.ov_corner[j]:.0f} %")
+            lines.append(lin(ct.W[j], abc) + " C_DIS" + note + f", OV {ct.ov_corner[j]:.0f} %")
             continue
         uin = (ct.W[j] - ct.W[j - 1]) / ct.seg[j - 1]
         uout = (ct.W[j + 1] - ct.W[j]) / ct.seg[j]
         d = float(p["d_zone_mm"])
-        lines.append(fmt % (*(ct.W[j] - d * uin), *abc) + f" C_DIS  ; zone start corner {cid[j]}")
+        lines.append(lin((ct.W[j] - d * uin), abc) + f" C_DIS  ; zone start corner {cid[j]}")
         lines.append(_vel(ct.v_corner_cmd[j]))
-        lines.append(fmt % (*ct.W[j], *abc) + " C_DIS" + note + f", v {ct.v_corner_cmd[j]:.2f} mm/s")
-        lines.append(fmt % (*(ct.W[j] + d * uout), *abc) + f" C_DIS  ; zone end corner {cid[j]}")
+        lines.append(lin(ct.W[j], abc) + " C_DIS" + note + f", v {ct.v_corner_cmd[j]:.2f} mm/s")
+        lines.append(lin((ct.W[j] + d * uout), abc) + f" C_DIS  ; zone end corner {cid[j]}")
         lines.append(_vel(v_s))
-    lines.append(fmt % (*(ct.W[-1] + [0, 0, lift]), *rows[-1][1]))
+    lines.append(lin((ct.W[-1] + [0, 0, lift]), rows[-1][1]))
     lines.append("END")
     with open(path, "w", newline="\n") as fh:          # LF on every platform (K-2)
         fh.write("\n".join(lines) + "\n")

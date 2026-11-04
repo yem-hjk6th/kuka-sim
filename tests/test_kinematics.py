@@ -127,6 +127,33 @@ def _assert_fk_ik_exact(robot, T, q_ref=None, arm_tol=1e-6):
         assert (d.min(1) < arm_tol).all(), d.min(1).max()
 
 
+def _assert_original_among_ok(Q, ok, q_ref, rows, tol=1e-7):
+    """For the selected rows, one slot marked ok equals q_ref on all six joints (within tol rad)."""
+    d = np.abs(Q - q_ref[:, None]).max(-1)
+    d[~ok] = np.inf
+    best = d.min(1)[rows]
+    assert rows.any() and (best < tol).all(), (np.flatnonzero(rows)[best >= tol][:5], best.max())
+
+
+def test_original_among_ok_catches_a_dropped_wrist_twin(robot):
+    """Follow-up of #6: an IK that dropped the slot holding the original solution (here: every
+    slot of its wrist-flip half) still passes the FK-only check, but not the original-joint check."""
+    q = np.radians([[5, -80, 95, 30, x5, 40] for x5 in (-3.0, -0.1, 0.1, 1.0, 3.0)])
+    T = robot.fk(q)
+    Q, ok = robot.ik(T)
+    _assert_original_among_ok(Q, ok, q, np.ones(len(q), bool))
+    d = np.abs(Q - q[:, None]).max(-1)
+    hit = np.argmin(np.where(ok, d, np.inf), axis=1)
+    w = (hit // 4) % 2                                   # slot index = (((s*2+e)*2+w)*2+t4)*2+t6
+    drop = ((np.arange(Q.shape[1])[None] // 4) % 2) == w[:, None]
+    ok_dropped = ok & ~drop
+    F = robot.fk(Q[ok_dropped])                          # what the FK-only check sees: still exact
+    Tr = np.repeat(T[:, None], Q.shape[1], 1)[ok_dropped]
+    assert ok_dropped.any(1).all() and np.abs(F[:, :3, 3] - Tr[:, :3, 3]).max() <= POS_TOL_MM
+    with pytest.raises(AssertionError):
+        _assert_original_among_ok(Q, ok_dropped, q, np.ones(len(q), bool))
+
+
 def test_ik_near_wrist_singularity_grid(robot):
     rng = np.random.default_rng(7)
     a5 = [-1e-6, -1e-9, -1e-12, 0.0, 1e-12, 1e-9, 1e-6, -3.0, -1.0, -0.1, 0.1, 1.0, 3.0]
@@ -137,7 +164,13 @@ def test_ik_near_wrist_singularity_grid(robot):
     q = np.radians(q)
     T = robot.fk(q)
     Tp = _perturbed(T, rng)
-    _assert_fk_ik_exact(robot, Tp, np.tile(q, (len(Tp) // len(q), 1)))
+    qp = np.tile(q, (len(Tp) // len(q), 1))
+    _assert_fk_ik_exact(robot, Tp, qp)
+    # The FK check above is the same one Robot.ik applies, so it cannot see a solution that IK
+    # dropped (e.g. a lost wrist twin). Away from the singularity (|A5| >= 0.1 deg) the original
+    # joint vector is unique, so it must itself be among the slots marked ok.
+    Q, ok = robot.ik(Tp)
+    _assert_original_among_ok(Q, ok, qp, np.abs(qp[:, 4]) >= np.radians(0.1))
     # A4 + A6 (the only defined combination at A5 = 0) is reproduced by the
     # solution with the original arm, i.e. no A4 / A6 split error
     Q, ok = robot.ik(T)

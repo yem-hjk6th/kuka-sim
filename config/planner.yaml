@@ -77,6 +77,15 @@ transit:
   lin_sample_mm: 1.0         # LIN collision sampling: max TCP step between samples
   lin_max_joint_step_deg: 3.0   # a LIN whose IK jumps more than this between samples is not continuous
   before_vel_axis_pct: 100   # controller default assumed for the old unbounded PTP (for the before numbers)
+  # First PTP of every generated program (kukasim/first_ptp.py): it starts from the pose the robot is in.
+  # If no integer $VEL_AXIS >= 1 % bounds its TCP speed from ANY start to <= k * max_tcp_speed_mm_s
+  # (bound: sum_i $VEL_AXIS % x URDF axis max speed x axis-to-tip radius r_i), the programs declare this
+  # start pose instead and the header requires the robot to be there before the program starts.
+  start_axis: [0, -90, 90, 0, 0, 0]   # A1..A6 (deg). DEFAULT = KUKA's usual HOME ($H_POS {A1 0, A2 -90, A3 90,
+                             # A4 0, A5 0, A6 0}), the pose of test_home_pose_flange; the cell's own home / start
+                             # pose is not known (not read from the controller): replace it before any run
+  start_tolerance_deg: 1.0   # the robot must be within this of start_axis on every axis; the first-PTP speed is
+                             # checked from the start and from all 64 corners of this tolerance box
 
 # Corner test (kukasim/hilbert_corner.py, scripts/run_hilbert_corner.py): one planar Hilbert
 # curve, fixed extruder rpm, a different speed-override ratio at every corner.

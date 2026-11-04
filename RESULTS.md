@@ -114,7 +114,17 @@ TCP speeds are a **model estimate**: every axis at most `$VEL_AXIS` % of its URD
 
 Clearance per move: retract / approach LINs with the tip exempt from the bed (they start on the print), PTP and lift / lower LINs with the tip included.
 
-Flag thresholds: peak TCP speed > 80 mm/s (only with `allow_fast_transit`), |dA4| or |dA6| > 180 deg, any collision, any primitive (tip included) closer than 15 mm to the bed at transit height. Retract and approach LINs run at the print `$VEL.CP` with the orientation held. Every export also approaches its first point and leaves its last point the same way; the first PTP comes from the unknown current pose and is not checked.
+Flag thresholds: peak TCP speed > 80 mm/s (only with `allow_fast_transit`), |dA4| or |dA6| > 180 deg, any collision, any primitive (tip included) closer than 15 mm to the bed at transit height. Retract and approach LINs run at the print `$VEL.CP` with the orientation held. Every export also approaches its first point and leaves its last point the same way.
+
+First PTP (from the pose the robot is in when a program starts; `kukasim/first_ptp.py`): its TCP speed is at most sum_i ($VEL_AXIS % x URDF axis max speed) x r_i from any start, with the axis-to-tool-tip radii r_i = 1428.6, 1403.6, 843.5, 330.3, 327, 225.6 mm (bounded from the URDF and TOOL 3). At $VEL_AXIS 1 % this bound is 236.9 mm/s, above 80 mm/s, so no start-independent bound exists (case `declared start`): the programs require the robot to be at the declared start pose {A1 0, A2 -90, A3 90, A4 0, A5 0, A6 0} (+-1 deg per axis, `transit.start_axis`, a default to be replaced by the cell's real start pose) and lower $VEL_AXIS for the first PTP with the transit speed model. The path of the first PTP is not collision-checked.
+
+| surface | case | first PTP $VEL_AXIS | peak TCP (model, worst over the tolerance box) |
+|---|---|---|---|
+| dome | declared start | 1 % | 41.3 mm/s |
+| saddle | declared start | 1 % | 44.7 mm/s |
+| sine_wave | declared start | 1 % | 50.7 mm/s |
+| ramp_45 | declared start | 1 % | 51.3 mm/s |
+| perimeter | declared start | 1 % | 43.8 mm/s |
 
 ## Files per toolpath (`results/<surface>/`)
 

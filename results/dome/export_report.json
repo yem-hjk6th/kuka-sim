@@ -37,5 +37,31 @@
  "clearance_note": "move_min_clearance_mm: retract / approach LINs are checked with the tip exempt from the bed (they start on the print); PTP and lift / lower LINs with the tip included",
  "transits": [],
  "flags": [],
- "before_direct_ptp": []
+ "before_direct_ptp": [],
+ "first_ptp": {
+  "case": "declared start",
+  "vel_axis_pct": 1,
+  "acc_axis_pct": 10,
+  "peak_tcp_mm_s": 41.3,
+  "limit_mm_s": 80.0,
+  "axis_tip_radii_mm": [
+   1428.6,
+   1403.6,
+   843.5,
+   330.3,
+   327.0,
+   225.6
+  ],
+  "bound_at_1pct_mm_s": 236.9,
+  "start_axis_deg": [
+   0.0,
+   -90.0,
+   90.0,
+   0.0,
+   0.0,
+   0.0
+  ],
+  "start_tolerance_deg": 1.0,
+  "peak_tcp_nominal_start_mm_s": 40.3
+ }
 }

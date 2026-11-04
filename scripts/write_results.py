@@ -92,8 +92,28 @@ def transit_section(s):
              f"`allow_fast_transit`), |dA4| or |dA6| > {p['max_wrist_turn_deg']} deg, any collision, any primitive "
              f"(tip included) closer than {p['bed_clearance_mm']} mm to the bed at transit height. Retract and "
              "approach LINs run at the print `$VEL.CP` with the orientation held. Every export also approaches its "
-             "first point and leaves its last point the same way; the first PTP comes from the unknown current "
-             "pose and is not checked.\n")
+             "first point and leaves its last point the same way.\n")
+    fps = {n: v["export"]["first_ptp"] for n, v in s["surfaces"].items() if "first_ptp" in v.get("export", {})}
+    if fps:
+        f0 = next(iter(fps.values()))
+        r = ", ".join(f"{v:g}" for v in f0["axis_tip_radii_mm"])
+        L.append("First PTP (from the pose the robot is in when a program starts; `kukasim/first_ptp.py`): its "
+                 "TCP speed is at most sum_i ($VEL_AXIS % x URDF axis max speed) x r_i from any start, with the "
+                 f"axis-to-tool-tip radii r_i = {r} mm (bounded from the URDF and TOOL 3). At $VEL_AXIS 1 % this "
+                 f"bound is {f0['bound_at_1pct_mm_s']:g} mm/s, "
+                 + (f"<= {f0['limit_mm_s']:g} mm/s, so the programs set $VEL_AXIS {f0['vel_axis_pct']} % "
+                    "(case `bound`)." if f0["case"] == "bound" else
+                    f"above {f0['limit_mm_s']:g} mm/s, so no start-independent bound exists (case `declared start`): "
+                    "the programs require the robot to be at the declared start pose "
+                    f"{{{', '.join(f'A{i + 1} {v:g}' for i, v in enumerate(f0['start_axis_deg']))}}} "
+                    f"(+-{f0['start_tolerance_deg']:g} deg per axis, `transit.start_axis`, a default to be replaced "
+                    "by the cell's real start pose) and lower $VEL_AXIS for the first PTP with the transit speed "
+                    "model. The path of the first PTP is not collision-checked.") + "\n")
+        L.append("| surface | case | first PTP $VEL_AXIS | peak TCP (model, worst over the tolerance box) |\n"
+                 "|---|---|---|---|")
+        for n, f in fps.items():
+            L.append(f"| {n} | {f['case']} | {f['vel_axis_pct']} % | {f['peak_tcp_mm_s']:g} mm/s |")
+        L.append("")
     return L
 
 

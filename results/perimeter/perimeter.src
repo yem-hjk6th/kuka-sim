@@ -15,7 +15,16 @@
 ;   TCP speeds below are a MODEL ESTIMATE (axes at <= $VEL_AXIS of the unverified URDF velocities,
 ;   assumed accelerations), not controller output. Clearances: retract / approach with the tip exempt
 ;   from the bed (they start on the print), PTP and lift / lower with the tip included.
-; The first PTP comes from the unknown current robot pose and is NOT checked.
+; The path of the first PTP (from the pose the robot is in) is NOT collision-checked.
+; First PTP (from the pose the robot is in when the program starts): case 'declared start'.
+;   No start-independent bound: even at $VEL_AXIS 1 % the bound is 236.9 mm/s > 80 mm/s
+;   (sum_i 1 % x axis max speed x r_i, r_i = 1429, 1404, 844, 330, 327, 226 mm, axis to tool tip; URDF axis maxima).
+;   THE ROBOT MUST BE AT THE DECLARED START POSE {A1 0, A2 -90, A3 90, A4 0, A5 0, A6 0}
+;   (within +-1 deg on every axis) BEFORE THIS PROGRAM STARTS.
+;   From there: $VEL_AXIS[1..6] = 1 %, $ACC_AXIS[1..6] = 10 %; model peak TCP speed of the first PTP 43.8 mm/s
+;   (worst over the start and the 64 tolerance-box corners; 42.4 mm/s from the start itself) <= 80 mm/s.
+;   Model estimate (transit speed model), not controller output. From any other pose the speed
+;   is not bounded by this program.
 ; transit 0->1: PTP at Z 81.0, min clearance per move (mm): retract 1.4, lift 15.4, transit 17.1, lower 15.3, approach 1.3; bed distance 27.0 mm, $VEL_AXIS 4 %, peak TCP 76 mm/s (model)
 ; transit 1->2: PTP at Z 81.0, min clearance per move (mm): retract 0.2, lift 14.6, transit 19.0, lower 15.2, approach 1.1; bed distance 27.0 mm, $VEL_AXIS 5 %, peak TCP 64 mm/s (model)
 ; FLAGS: none
@@ -25,12 +34,12 @@ DEF perimeter()
   $VEL.CP = 0.012
   $APO.CDIS = 0.5
   $ORI_TYPE = #VAR
-  $VEL_AXIS[1] = 5
-  $VEL_AXIS[2] = 5
-  $VEL_AXIS[3] = 5
-  $VEL_AXIS[4] = 5
-  $VEL_AXIS[5] = 5
-  $VEL_AXIS[6] = 5
+  $VEL_AXIS[1] = 1
+  $VEL_AXIS[2] = 1
+  $VEL_AXIS[3] = 1
+  $VEL_AXIS[4] = 1
+  $VEL_AXIS[5] = 1
+  $VEL_AXIS[6] = 1
   $ACC_AXIS[1] = 10
   $ACC_AXIS[2] = 10
   $ACC_AXIS[3] = 10
@@ -38,7 +47,7 @@ DEF perimeter()
   $ACC_AXIS[5] = 10
   $ACC_AXIS[6] = 10
   ; approach above the start of segment 0 (Z 30.9)
-  PTP {A1 35.8927, A2 -41.1213, A3 126.9222, A4 105.8522, A5 -91.1489, A6 -4.0391} ; from the current pose: NOT checked
+  PTP {A1 35.8927, A2 -41.1213, A3 126.9222, A4 105.8522, A5 -91.1489, A6 -4.0391} ; first PTP: from the DECLARED START pose (see header)
   LIN {X 469.010, Y -145.900, Z 2.250, A 70.0000, B 90.0000, C 0.0000}
   ; segment 0: points 14..301
   LIN {X 470.511, Y -145.900, Z 2.250, A 70.0000, B 90.0000, C 0.0000} C_DIS

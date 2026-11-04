@@ -56,7 +56,33 @@
     },
     "transits": [],
     "flags": [],
-    "before_direct_ptp": []
+    "before_direct_ptp": [],
+    "first_ptp": {
+     "case": "declared start",
+     "vel_axis_pct": 1,
+     "acc_axis_pct": 10,
+     "peak_tcp_mm_s": 41.3,
+     "limit_mm_s": 80.0,
+     "axis_tip_radii_mm": [
+      1428.6,
+      1403.6,
+      843.5,
+      330.3,
+      327.0,
+      225.6
+     ],
+     "bound_at_1pct_mm_s": 236.9,
+     "start_axis_deg": [
+      0.0,
+      -90.0,
+      90.0,
+      0.0,
+      0.0,
+      0.0
+     ],
+     "start_tolerance_deg": 1.0,
+     "peak_tcp_nominal_start_mm_s": 40.3
+    }
    }
   },
   "saddle": {
@@ -114,7 +140,33 @@
     },
     "transits": [],
     "flags": [],
-    "before_direct_ptp": []
+    "before_direct_ptp": [],
+    "first_ptp": {
+     "case": "declared start",
+     "vel_axis_pct": 1,
+     "acc_axis_pct": 10,
+     "peak_tcp_mm_s": 44.7,
+     "limit_mm_s": 80.0,
+     "axis_tip_radii_mm": [
+      1428.6,
+      1403.6,
+      843.5,
+      330.3,
+      327.0,
+      225.6
+     ],
+     "bound_at_1pct_mm_s": 236.9,
+     "start_axis_deg": [
+      0.0,
+      -90.0,
+      90.0,
+      0.0,
+      0.0,
+      0.0
+     ],
+     "start_tolerance_deg": 1.0,
+     "peak_tcp_nominal_start_mm_s": 43.4
+    }
    }
   },
   "sine_wave": {
@@ -172,7 +224,33 @@
     },
     "transits": [],
     "flags": [],
-    "before_direct_ptp": []
+    "before_direct_ptp": [],
+    "first_ptp": {
+     "case": "declared start",
+     "vel_axis_pct": 1,
+     "acc_axis_pct": 10,
+     "peak_tcp_mm_s": 50.7,
+     "limit_mm_s": 80.0,
+     "axis_tip_radii_mm": [
+      1428.6,
+      1403.6,
+      843.5,
+      330.3,
+      327.0,
+      225.6
+     ],
+     "bound_at_1pct_mm_s": 236.9,
+     "start_axis_deg": [
+      0.0,
+      -90.0,
+      90.0,
+      0.0,
+      0.0,
+      0.0
+     ],
+     "start_tolerance_deg": 1.0,
+     "peak_tcp_nominal_start_mm_s": 49.1
+    }
    }
   },
   "ramp_45": {
@@ -230,7 +308,33 @@
     },
     "transits": [],
     "flags": [],
-    "before_direct_ptp": []
+    "before_direct_ptp": [],
+    "first_ptp": {
+     "case": "declared start",
+     "vel_axis_pct": 1,
+     "acc_axis_pct": 10,
+     "peak_tcp_mm_s": 51.3,
+     "limit_mm_s": 80.0,
+     "axis_tip_radii_mm": [
+      1428.6,
+      1403.6,
+      843.5,
+      330.3,
+      327.0,
+      225.6
+     ],
+     "bound_at_1pct_mm_s": 236.9,
+     "start_axis_deg": [
+      0.0,
+      -90.0,
+      90.0,
+      0.0,
+      0.0,
+      0.0
+     ],
+     "start_tolerance_deg": 1.0,
+     "peak_tcp_nominal_start_mm_s": 49.8
+    }
    }
   },
   "perimeter": {
@@ -518,7 +622,33 @@
       "end_z_mm": 2.25,
       "vel_axis_pct_assumed": 100
      }
-    ]
+    ],
+    "first_ptp": {
+     "case": "declared start",
+     "vel_axis_pct": 1,
+     "acc_axis_pct": 10,
+     "peak_tcp_mm_s": 43.8,
+     "limit_mm_s": 80.0,
+     "axis_tip_radii_mm": [
+      1428.6,
+      1403.6,
+      843.5,
+      330.3,
+      327.0,
+      225.6
+     ],
+     "bound_at_1pct_mm_s": 236.9,
+     "start_axis_deg": [
+      0.0,
+      -90.0,
+      90.0,
+      0.0,
+      0.0,
+      0.0
+     ],
+     "start_tolerance_deg": 1.0,
+     "peak_tcp_nominal_start_mm_s": 42.4
+    }
    }
   }
  },
