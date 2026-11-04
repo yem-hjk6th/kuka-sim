@@ -1167,7 +1167,7 @@ def build_report(program_path, prog, motions, checker):
     for k, sec in enumerate(prog.sections):
         ms = [r for r, m in zip(motions, prog.motions) if m.section == k]
         sections.append({"def": sec["name"], "line": sec["line"], "end_line": sec["end_line"],
-                         "start": "program start (--start-axis)" if sec["first"] else
+                         "start": "pose from --start-axis or unknown, settings not set" if sec["first"] else
                                   "unknown: pose and settings from the caller",
                          "motions": len(ms), "flagged_motions": sum(bool(r["flags"]) for r in ms),
                          "not_checked_motions": sum(not r.get("checked", True) for r in ms),
@@ -1237,7 +1237,7 @@ def write_markdown(path, rep):
          "## DEF sections", "",
          "Each DEF is checked on its own. A DEF after the first one starts with an unknown pose and unknown "
          "settings (they come from the caller), so its first motion is not checked.", ""]
-    L += [f"- DEF {d['def']} (lines {d['line']}-{d['end_line']}; start {d['start']}): {d['motions']} motion(s), "
+    L += [f"- DEF {d['def']} (lines {d['line']}-{d['end_line']}; start: {d['start']}): {d['motions']} motion(s), "
           f"flagged {d['flagged_motions']}, not checked {d['not_checked_motions']}, errors "
           f"{len(d['issue_lines'])}" for d in rep.get("sections", [])] or ["none"]
     L += ["", "## Statements not interpreted or invalid", ""]
