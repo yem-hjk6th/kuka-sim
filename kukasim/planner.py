@@ -14,6 +14,8 @@ Hard constraints (a state or transition that violates one does not exist):
   * |delta bin| <= max_dbin.
 Costs: node = w_l * limit + w_s * singularity; edge = w_v * sum((dq/dq_max)^2).
 Where no continuous chain exists the path is split, and the split is reported.
+Ties (costs equal to COST_TIE_RTOL) are broken by the smallest |A4| + |A6|, then by
+the lowest state index, so the plan does not depend on float noise (see _tie_break).
 """
 from __future__ import annotations
 
@@ -85,6 +87,31 @@ class PlanResult:
     def complete(self):
         return len(self.segments) == 1 and not self.no_state and \
             self.segments[0] == (0, len(self.bins) - 1)
+
+
+COST_TIE_RTOL = 1e-9   # costs this close (relative) to the minimum count as equal
+
+
+def _wrist_deg(q):
+    """|A4| + |A6| in deg, rounded so that platform-level float noise cannot reorder it."""
+    return np.round(np.degrees(np.abs(q[..., 3]) + np.abs(q[..., 5])), 6)
+
+
+def _tie_break(group, cost, q, index):
+    """Per group, the position of the winner: lowest cost; costs within COST_TIE_RTOL of the
+    group minimum are equal, then the smallest |A4| + |A6|, then the lowest index.
+
+    Equal-cost states are common (e.g. A6 and A6 +- 360 deg give identical costs along the
+    whole chain), and a plain argmin over them follows the last bits of the float sums,
+    which differ between platforms / numpy builds. This makes the plan deterministic."""
+    gmin = np.full(group.max() + 1, np.inf)
+    np.minimum.at(gmin, group, cost)
+    g = gmin[group]
+    near = cost <= g + COST_TIE_RTOL * np.maximum(1.0, np.abs(g))
+    cand = np.nonzero(near)[0]
+    order = cand[np.lexsort((index[cand], _wrist_deg(q[cand]), group[cand]))]
+    first = np.r_[True, group[order][1:] != group[order][:-1]]
+    return order[first]
 
 
 class Planner:
@@ -182,9 +209,7 @@ class Planner:
                 best = np.full(len(S.node), np.inf)
                 par = np.full(len(S.node), -1)
                 if len(tot):
-                    order = np.lexsort((tot, ci))
-                    first = np.r_[True, ci[order][1:] != ci[order][:-1]]
-                    sel = order[first]
+                    sel = _tie_break(ci, tot, P.q[pi], pi)
                     best[ci[sel]] = tot[sel]
                     par[ci[sel]] = pi[sel]
                 if np.isfinite(best).any():
@@ -200,7 +225,8 @@ class Planner:
         choice = np.full(N, -1)
         total = 0.0
         for s0, e in segments:
-            k = int(np.argmin(acc[e]))
+            idx = np.arange(len(acc[e]))
+            k = int(idx[_tie_break(np.zeros_like(idx), acc[e], states[e].q, idx)][0])
             total += float(acc[e][k])
             for i in range(e, s0 - 1, -1):
                 choice[i] = k

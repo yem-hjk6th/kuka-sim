@@ -53,20 +53,26 @@ def transit_section(s):
     L = ["## KRL export: moves between segments (issue #2)\n"]
     L.append("Before, a segment break in the export was a PTP straight from the last printed point to the next "
              "start, at print height, unchecked, at the controller's default axis speed. Now each break is a LIN "
-             f"retract along the nozzle axis to at least {p['safe_height_mm']} mm above the bed top, a PTP that is "
+             f"retract along the nozzle axis to at least {p['safe_height_mm']} mm above the bed top (and at least "
+             f"{p['printed_clearance_mm']} mm above the highest Z printed so far), a PTP that is "
              "sampled in joint space and checked against the bed, the clamps and the floor (tip included), lifted to "
              f"{', '.join(str(h) for h in p['via_heights_mm'])} mm if it collides, and a LIN approach; if no candidate "
              f"is clear, the export fails. `$VEL_AXIS` = {p['vel_axis_pct']} % and `$ACC_AXIS` = {p['acc_axis_pct']} % "
-             "are set on all axes.\n")
+             "are set on all axes; before every transit PTP `$VEL_AXIS` is lowered to "
+             f"floor({p['vel_axis_pct']} x min(1, {p['speed_safety_factor']} x {p['max_tcp_speed_mm_s']} / peak)) % "
+             f"(at least 1 %) so the model peak is <= {p['enforced_tcp_speed_mm_s']:g} mm/s; a transit still above "
+             "that at 1 % fails the export unless `allow_fast_transit` is set. A transit that turns A4 or A6 by more "
+             f"than {p['max_wrist_turn_deg']} deg is flagged (hose / cable wrap not modelled).\n")
     L.append("TCP speeds are a **model estimate**: every axis at most `$VEL_AXIS` % of its URDF velocity "
-             "(unverified), the leading axis sets the rate along the joint-space line, peak TCP speed = "
-             "max |dx/ds| x that rate. 'Before' assumes 100 % axis speed. Clearance is the margin to the inflated "
+             "(unverified) and `$ACC_AXIS` % of an assumed acceleration, the leading axis sets a trapezoid rate "
+             "along the joint-space line (a move too short to reach cruise is capped by its distance), peak TCP "
+             "speed = max |dx/ds| x that rate. 'Before' assumes 100 % axis speed and acceleration. Clearance is the margin to the inflated "
              "collision boxes (bed gap 5 mm, clamps +20 mm); negative means inside. The bed top is at Z "
              f"{p['bed_top_z']:.2f}.\n")
     L.append("| toolpath | transit | before: min clearance (obstacles hit) | before: lowest TCP Z | "
-             "before: peak TCP (model) | after: PTP height | after: min clearance | after: min distance to bed | "
-             "after: peak TCP (model) | rejected candidates | flags |")
-    L.append("|---|---|---|---|---|---|---|---|---|---|---|")
+             "before: peak TCP (model) | after: PTP height | after: min clearance per move | "
+             "after: min distance to bed | after: $VEL_AXIS | after: peak TCP (model) | rejected candidates | flags |")
+    L.append("|---|---|---|---|---|---|---|---|---|---|---|---|")
     n = 0
     for name, e in ex.items():
         for b, t in zip(e["before_direct_ptp"], e["transits"]):
@@ -74,12 +80,16 @@ def transit_section(s):
             rej = "; ".join(f"z {r['z_mm']:.0f}: {r['reason']}" for r in t["rejected"]) or "-"
             L.append(f"| {name} | {t['from_segment']}->{t['to_segment']} | {b['min_clearance_mm']:.1f} mm "
                      f"({', '.join(b['hits']) or 'clear'}) | Z {b['min_tcp_z_mm']:.1f} | {b['peak_tcp_mm_s_model']:.0f} mm/s | Z {t['z_mm']:.1f} | "
-                     f"{t['min_clearance_mm']:.1f} mm | {t['min_bed_distance_mm']:.1f} mm | "
+                     + ", ".join(f"{k} {v:.1f}" for k, v in t["move_min_clearance_mm"].items())
+                     + f" mm | {t['min_bed_distance_mm']:.1f} mm | {t['ptp_vel_axis_pct']:g} % | "
                      f"{t['peak_tcp_mm_s_model']:.0f} mm/s | {rej} | {'; '.join(t['flags']) or 'none'} |")
     if not n:
-        L.append("| - | no segment breaks | | | | | | | | | |")
+        L.append("| - | no segment breaks | | | | | | | | | | |")
     L.append("")
-    L.append(f"Flag thresholds: peak TCP speed > {p['max_tcp_speed_mm_s']} mm/s, any collision, any primitive "
+    L.append("Clearance per move: retract / approach LINs with the tip exempt from the bed (they start on the "
+             "print), PTP and lift / lower LINs with the tip included.\n")
+    L.append(f"Flag thresholds: peak TCP speed > {p['enforced_tcp_speed_mm_s']:g} mm/s (only with "
+             f"`allow_fast_transit`), |dA4| or |dA6| > {p['max_wrist_turn_deg']} deg, any collision, any primitive "
              f"(tip included) closer than {p['bed_clearance_mm']} mm to the bed at transit height. Retract and "
              "approach LINs run at the print `$VEL.CP` with the orientation held. Every export also approaches its "
              "first point and leaves its last point the same way; the first PTP comes from the unknown current "

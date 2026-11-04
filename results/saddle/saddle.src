@@ -7,10 +7,14 @@
 ; LIN points carry no S/T; configuration changes happen only in PTP moves given as joint values (E6AXIS).
 ; Joint values for every point are in trajectory.csv. Controller blending (C_DIS) is not simulated.
 ; Transits: LIN retract along the nozzle axis (tool -X) to >= 30 mm above the bed top,
+;   and >= 15 mm above the highest Z printed so far,
 ;   PTP (lifted to 80, 120, 180 mm if the low one collides), LIN approach.
 ;   Every transit was sampled (PTP in joint space) and checked against the bed, clamps and floor in simulation.
-; $VEL_AXIS = 5 %, $ACC_AXIS = 10 % on all axes. TCP speeds below are a
-;   MODEL ESTIMATE (axes at <= $VEL_AXIS of the unverified URDF velocities), not controller output.
+; $VEL_AXIS = 5 %, $ACC_AXIS = 10 % on all axes; before each transit PTP
+;   $VEL_AXIS is lowered so its peak TCP speed is <= 80 mm/s (= 0.8 x 100).
+;   TCP speeds below are a MODEL ESTIMATE (axes at <= $VEL_AXIS of the unverified URDF velocities,
+;   assumed accelerations), not controller output. Clearances: retract / approach with the tip exempt
+;   from the bed (they start on the print), PTP and lift / lower with the tip included.
 ; The first PTP comes from the unknown current robot pose and is NOT checked.
 ; FLAGS: none
 DEF saddle()
@@ -1404,6 +1408,6 @@ DEF saddle()
   LIN {X 830.495, Y -290.000, Z 49.298, A -45.6042, B 60.0000, C -99.7038} C_DIS
   LIN {X 831.750, Y -290.000, Z 50.121, A -45.3001, B 60.0000, C -99.4034} C_DIS
   LIN {X 833.000, Y -290.000, Z 50.950, A -45.0000, B 60.0000, C -99.1066}
-  ; final retract to Z 56.0
-  LIN {X 830.959, Y -287.959, Z 55.950, A -45.0000, B 60.0000, C -99.1066}
+  ; final retract to Z 105.9
+  LIN {X 810.549, Y -267.549, Z 105.945, A -45.0000, B 60.0000, C -99.1066}
 END

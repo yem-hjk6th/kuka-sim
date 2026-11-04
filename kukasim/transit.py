@@ -4,7 +4,11 @@ Simulation only. Every transit is planned and checked here before it is written:
 
 * **Retract / approach.** LIN along the nozzle axis, away from the print (tool -X:
   in this cell's TOOL 3 the nozzle points along tool +X, KUKA's tool direction),
-  up to the transit height ``max(bed top + safe_height, higher segment end + min_retract)``.
+  up to the transit height ``max(bed top + safe_height, higher segment end + min_retract,
+  highest Z printed so far + printed_clearance)``: the PTP must clear material already
+  printed anywhere on the bed, not only the two segment ends. The joint-space PTP
+  sags between its ends, so every PTP sample is checked against that clearance and
+  the transit is lifted by the deficit if it dips below.
   The orientation is held, so the IK configuration does not change on these LINs;
   they are sampled in Cartesian space with IK continuity and checked with the
   printing collision rule (tip exempt from the bed, which it starts on).
@@ -16,16 +20,25 @@ Simulation only. Every transit is planned and checked here before it is written:
   If it collides, the PTP is lifted to the fallback ``via_heights_mm`` with
   vertical LINs up and down. If nothing is clear, ``TransitError`` is raised:
   an unchecked transit is never returned.
-* **Speed (model estimate).** Each axis is assumed never to exceed
-  ``vel_axis_pct`` % of its URDF velocity (URDF velocities are unverified, see
-  cell.yaml). The leading axis sets the path rate ds/dt <= min_j(v_j / |dq_j|),
-  so the peak TCP speed is <= max |dx/ds| * that rate. Accelerations ($ACC_AXIS)
-  only change how fast cruise is reached, not this bound. The controller's real
-  profile (jerk limits, dynamic model, override) is not modelled. LINs run at
-  the programmed $VEL.CP with constant orientation.
+* **Speed (model estimate, enforced).** Each axis is assumed never to exceed
+  ``$VEL_AXIS`` % of its URDF velocity (URDF velocities are unverified, see
+  cell.yaml). The leading axis sets the cruise path rate ds/dt <= min_j(v_j / |dq_j|);
+  the rate ramps up and down with ds2/dt2 = min_j(a_j / |dq_j|), a_j = ``$ACC_AXIS`` %
+  of the assumed ``axis_acc_deg_s2`` (a trapezoid, or a triangle on a move too short
+  to reach cruise). The peak TCP speed is max over the move of |dx/ds| * ds/dt.
+  Before every transit PTP the export sets
+  ``$VEL_AXIS[i] = floor(vel_axis_pct * min(1, k * max_tcp / peak))`` (at least 1 %),
+  k = ``speed_safety_factor`` (0.8: the URDF axis maxima are unverified), lowered
+  further while the model peak is still above k * max_tcp. If it is still above at
+  1 %, ``TransitError`` is raised unless ``allow_fast_transit`` is set (then it is
+  flagged). The controller's real profile (jerk limits, dynamic model, override) is
+  not modelled. LINs run at the programmed $VEL.CP with constant orientation.
+* **Hose / cable wrap.** A transit that turns A4 or A6 by more than
+  ``max_wrist_turn_deg`` (180) is flagged: the hose and cables on the wrist are not modelled.
 """
 from __future__ import annotations
 
+import math
 from dataclasses import dataclass, field
 
 import numpy as np
@@ -48,8 +61,10 @@ class Move:
     blocking: str | None = None       # obstacle with the smallest clearance, if < 0
     hits: list = field(default_factory=list)   # every obstacle with clearance < 0
     bed_distance_mm: float = np.inf   # min distance of any primitive (tip included) to the bed
-    peak_tcp_mm_s: float = 0.0        # model estimate
+    peak_tcp_mm_s: float = 0.0        # model estimate (trapezoid / triangle profile)
+    cruise_tcp_mm_s: float = 0.0      # model estimate at cruise rate (reached only on long enough moves)
     duration_s: float = 0.0           # cruise-only lower bound (model estimate)
+    vel_axis_pct: float | None = None  # PTP only: $VEL_AXIS[1..6] emitted before this move
     continuous: bool = True           # LIN only: IK continuous along the line
 
 
@@ -58,6 +73,7 @@ class Transit:
     seg_from: int
     seg_to: int
     z_mm: float                       # TCP height of the PTP
+    z_printed_mm: float = -np.inf     # highest Z printed before this transit
     moves: list = field(default_factory=list)
     flags: list = field(default_factory=list)
     tried: list = field(default_factory=list)   # [(z, reason)] candidates that were rejected
@@ -75,6 +91,16 @@ class Transit:
         return max(m.peak_tcp_mm_s for m in self.moves)
 
     @property
+    def joint_change_deg(self):
+        """Joint change over the whole transit (retract start -> approach end)."""
+        return np.degrees(self.moves[-1].q[-1] - self.moves[0].q[0])
+
+    @property
+    def move_clearance_mm(self):
+        """Min clearance per move, keyed by label (retract / lift / transit / lower / approach)."""
+        return {m.label: float(m.clearance_mm) for m in self.moves}
+
+    @property
     def min_bed_distance_mm(self):
         """Over the moves at transit height (retract / approach start on the print)."""
         return min((m.bed_distance_mm for m in self.moves if m.checked_tip), default=np.inf)
@@ -84,9 +110,14 @@ class Transit:
         return {"from_segment": self.seg_from, "to_segment": self.seg_to, "z_mm": round(self.z_mm, 2),
                 "moves": [f"{m.kind} {m.label}" for m in self.moves],
                 "ptp_joint_change_deg": np.round(np.degrees(p.q[-1] - p.q[0]), 2).tolist(),
+                "transit_joint_change_deg": np.round(self.joint_change_deg, 2).tolist(),
+                "printed_max_z_mm": None if not np.isfinite(self.z_printed_mm) else round(float(self.z_printed_mm), 2),
                 "min_clearance_mm": round(float(self.min_clearance_mm), 2),
+                "move_min_clearance_mm": {k: round(v, 2) for k, v in self.move_clearance_mm.items()},
                 "min_bed_distance_mm": round(float(self.min_bed_distance_mm), 2),
+                "ptp_vel_axis_pct": p.vel_axis_pct,
                 "peak_tcp_mm_s_model": round(float(self.peak_tcp_mm_s), 1),
+                "ptp_cruise_tcp_mm_s_model": round(float(p.cruise_tcp_mm_s), 1),
                 "ptp_duration_s_model": round(float(p.duration_s), 1),
                 "flags": list(self.flags),
                 "rejected": [{"z_mm": round(z, 2), "reason": r} for z, r in self.tried]}
@@ -113,17 +144,50 @@ class TransitPlanner:
     def axis_speed(self, pct):
         return self.robot.vmax * pct / 100.0
 
-    def ptp_speed(self, q, pct):
-        """Peak TCP speed (mm/s) and cruise duration (s) of a PTP sampled as q (n,6); model estimate."""
+    def axis_acc(self, pct=None):
+        """Assumed axis accelerations (rad/s^2) at $ACC_AXIS = pct % (default acc_axis_pct)."""
+        a = np.radians(np.broadcast_to(np.asarray(self.p["axis_acc_deg_s2"], float), (6,)))
+        return a * (self.p["acc_axis_pct"] if pct is None else pct) / 100.0
+
+    def ptp_speed(self, q, pct, acc_pct=None):
+        """(peak, cruise) TCP speed (mm/s) and cruise duration (s) of a PTP sampled as q (n,6); model estimate.
+
+        peak: the path rate follows a trapezoid in s (cruise rate from the leading axis' speed,
+        ramps from the leading axis' acceleration), so a move too short to reach cruise is
+        capped by its distance; cruise: the rate if cruise were reached everywhere."""
         dq = q[-1] - q[0]
         moving = np.abs(dq) > 1e-12
         if not moving.any():
-            return 0.0, 0.0
+            return 0.0, 0.0, 0.0
         sdot = np.min(self.axis_speed(pct)[moving] / np.abs(dq[moving]))   # 1/s, path parameter rate
-        ds = 1.0 / (len(q) - 1)
+        sacc = np.min(self.axis_acc(acc_pct)[moving] / np.abs(dq[moving]))        # 1/s^2
+        n = len(q) - 1
         tcp = self.robot.fk(q)[:, :3, 3]
-        dxds = np.linalg.norm(np.diff(tcp, axis=0), axis=1) / ds
-        return float(dxds.max() * sdot), float(1.0 / sdot)
+        dxds = np.linalg.norm(np.diff(tcp, axis=0), axis=1) * n
+        s_mid = (np.arange(n) + 0.5) / n
+        rate = np.minimum(sdot, np.sqrt(2.0 * sacc * np.minimum(s_mid, 1.0 - s_mid)))
+        return float((dxds * rate).max()), float(dxds.max() * sdot), float(1.0 / sdot)
+
+    @property
+    def speed_limit(self):
+        """Enforced model peak for transit PTPs: k * max_tcp_speed_mm_s."""
+        return float(self.p["speed_safety_factor"]) * float(self.p["max_tcp_speed_mm_s"])
+
+    def _set_speed(self, m, pct, acc_pct=None):
+        m.vel_axis_pct = pct
+        m.peak_tcp_mm_s, m.cruise_tcp_mm_s, m.duration_s = self.ptp_speed(m.q, pct, acc_pct)
+
+    def limit_speed(self, m):
+        """Lower the PTP's $VEL_AXIS until its model peak is <= speed_limit (or 1 %)."""
+        lim = self.speed_limit
+        pct = m.vel_axis_pct
+        if m.peak_tcp_mm_s > lim:
+            new = max(1, math.floor(pct * min(1.0, lim / m.peak_tcp_mm_s)))
+            self._set_speed(m, new)
+            # a ramp-limited peak falls slower than linearly with $VEL_AXIS: step down if needed
+            while m.peak_tcp_mm_s > lim and m.vel_axis_pct > 1:
+                self._set_speed(m, m.vel_axis_pct - 1)
+        return m
 
     # ------------------------------------------------------------ checks
     def _check(self, m: Move):
@@ -138,12 +202,15 @@ class TransitPlanner:
             m.bed_distance_mm = float(det["bed"].min() + self.bed_gap)
         return m
 
-    def ptp(self, q0, q1, label="transit", pct=None, checked_tip=True):
+    def ptp(self, q0, q1, label="transit", pct=None, checked_tip=True, enforce=False, acc_pct=None):
+        """PTP sampled in joint space. enforce: lower $VEL_AXIS to meet speed_limit (transits)."""
         n = int(np.ceil(np.degrees(np.abs(q1 - q0)).max() / self.p["ptp_sample_deg"])) + 1
         s = np.linspace(0.0, 1.0, max(n, 2))[:, None]
         q = q0 + s * (q1 - q0)
         m = Move("PTP", label, q, self.robot.fk(q)[:, :3, 3], checked_tip)
-        m.peak_tcp_mm_s, m.duration_s = self.ptp_speed(q, self.p["vel_axis_pct"] if pct is None else pct)
+        self._set_speed(m, self.p["vel_axis_pct"] if pct is None else pct, acc_pct)
+        if enforce:
+            self.limit_speed(m)
         return self._check(m)
 
     def lin(self, q0, p1, label, checked_tip):
@@ -184,17 +251,22 @@ class TransitPlanner:
         t = (z - p[2]) / (-d[2])
         return p - max(t, 0.0) * d
 
-    def base_height(self, p_end, p_start):
+    def base_height(self, p_end, p_start, z_printed=-np.inf):
+        """Transit height: safe height above the bed, min_retract above both segment ends,
+        and printed_clearance above the highest material printed so far (z_printed)."""
         return max(self.bed_top + self.p["safe_height_mm"],
-                   max(p_end[2], p_start[2]) + self.p["min_retract_mm"])
+                   max(p_end[2], p_start[2]) + self.p["min_retract_mm"],
+                   z_printed + self.p["printed_clearance_mm"])
 
     def lift(self, q, p, d, z):
         """retract (or, reversed, approach) moves from the print pose q down at p to height z."""
         return self.lin(q, self.retract_point(p, d, z), "retract", checked_tip=False)
 
-    def plan(self, q_end, p_end, d_end, q_start, p_start, d_start, seg_from=0, seg_to=1):
-        z0 = self.base_height(p_end, p_start)
-        tr = Transit(seg_from, seg_to, z0)
+    def plan(self, q_end, p_end, d_end, q_start, p_start, d_start, seg_from=0, seg_to=1, z_printed=None):
+        """z_printed: highest Z printed before this transit (default: the end of the last segment)."""
+        zp = float(p_end[2] if z_printed is None else max(z_printed, p_end[2]))
+        z0 = self.base_height(p_end, p_start, zp)
+        tr = Transit(seg_from, seg_to, z0, zp)
         r = self.lift(q_end, p_end, d_end, z0)
         a = self.lift(q_start, p_start, d_start, z0)      # computed upwards, emitted reversed
         a.label = "approach"
@@ -207,7 +279,12 @@ class TransitPlanner:
                                    f"(clearance {m.clearance_mm:.1f} mm)")
         a = _reverse(a)
         heights = [z0] + [self.bed_top + h for h in self.p["via_heights_mm"] if self.bed_top + h > z0]
-        for z in heights:
+        z_clear = zp + self.p["printed_clearance_mm"]       # every PTP sample must stay above this
+        k = 0
+        retried = set()
+        while k < len(heights):
+            z = heights[k]
+            k += 1
             moves = [r]
             qa, qb = r.q[-1], a.q[0]
             if z > z0 + 1e-9:
@@ -223,12 +300,25 @@ class TransitPlanner:
                 dn.label = "lower"
                 moves.append(up)
                 qa, qb = up.q[-1], dn.q[0]
-            ptp = self.ptp(qa, qb)
-            if ptp.clearance_mm < 0:
-                k = int(np.argmin(self.coll.clearance(ptp.q, exempt_tip=False)))
-                tr.tried.append((z, f"PTP collides with {ptp.blocking} "
-                                    f"(clearance {ptp.clearance_mm:.1f} mm at {100 * k / (len(ptp.q) - 1):.0f} % of the move)"))
+            ptp = self.ptp(qa, qb, enforce=True)
+            sag = z_clear - float(ptp.tcp[:, 2].min())
+            if sag > 1e-6:
+                # the joint-space PTP dips between its ends: retry once, higher by the deficit
+                tr.tried.append((z, f"PTP sags {sag:.1f} mm below the printed-material clearance"))
+                if z not in retried:
+                    retried.add(z + sag + 1.0)
+                    heights.insert(k, z + sag + 1.0)
                 continue
+            if ptp.clearance_mm < 0:
+                i = int(np.argmin(self.coll.clearance(ptp.q, exempt_tip=False)))
+                tr.tried.append((z, f"PTP collides with {ptp.blocking} "
+                                    f"(clearance {ptp.clearance_mm:.1f} mm at {100 * i / (len(ptp.q) - 1):.0f} % of the move)"))
+                continue
+            if ptp.peak_tcp_mm_s > self.speed_limit and not self.p["allow_fast_transit"]:
+                raise TransitError(f"transit {seg_from}->{seg_to}: model peak TCP speed {ptp.peak_tcp_mm_s:.0f} mm/s "
+                                   f"at $VEL_AXIS = {ptp.vel_axis_pct:g} % is above {self.speed_limit:g} mm/s "
+                                   f"(= {self.p['speed_safety_factor']:g} x {self.p['max_tcp_speed_mm_s']:g}); "
+                                   "set transit.allow_fast_transit to export it flagged")
             moves.append(ptp)
             if z > z0 + 1e-9:
                 moves.append(dn)
@@ -243,9 +333,15 @@ class TransitPlanner:
 
     def flags(self, tr):
         f = []
-        lim = self.p["max_tcp_speed_mm_s"]
+        lim = self.speed_limit
         if tr.peak_tcp_mm_s > lim:
-            f.append(f"TCP speed {tr.peak_tcp_mm_s:.0f} mm/s > {lim:g} mm/s (model estimate)")
+            f.append(f"TCP speed {tr.peak_tcp_mm_s:.0f} mm/s > {lim:g} mm/s (model estimate, allowed by "
+                     "allow_fast_transit)")
+        turn = self.p["max_wrist_turn_deg"]
+        dq = tr.joint_change_deg
+        for j in (3, 5):
+            if abs(dq[j]) > turn:
+                f.append(f"A{j + 1} turns {dq[j]:+.0f} deg (> {turn:g} deg; hose / cable wrap not modelled)")
         if tr.min_clearance_mm < 0:
             f.append(f"enters a collision zone (clearance {tr.min_clearance_mm:.1f} mm)")
         if tr.min_bed_distance_mm < self.p["bed_clearance_mm"]:
@@ -257,7 +353,9 @@ class TransitPlanner:
     def direct_ptp(self, q_end, q_start):
         """The pre-fix move: PTP straight from the last printed point to the next start,
         at the assumed controller default axis speed."""
-        return self.ptp(q_end, q_start, "direct", pct=self.p["before_vel_axis_pct"], checked_tip=True)
+        # the old export set no $ACC_AXIS either: full acceleration assumed for the before numbers
+        return self.ptp(q_end, q_start, "direct", pct=self.p["before_vel_axis_pct"], acc_pct=100,
+                        checked_tip=True)
 
 
 def _reverse(m: Move) -> Move:
@@ -273,8 +371,14 @@ def plan_transits(tplanner, res, rows):
     for k in range(1, len(res.segments)):
         e = res.segments[k - 1][1]
         s = res.segments[k][0]
-        out.append(tplanner.plan(res.q[e], rows[e][0], tp.dirs[e], res.q[s], rows[s][0], tp.dirs[s], k - 1, k))
+        out.append(tplanner.plan(res.q[e], rows[e][0], tp.dirs[e], res.q[s], rows[s][0], tp.dirs[s], k - 1, k,
+                                 z_printed=printed_max_z(rows, res.segments[:k])))
     return out
+
+
+def printed_max_z(rows, segments):
+    """Highest TCP Z over the printed points of the given segments."""
+    return max(rows[i][0][2] for a, b in segments for i in range(a, b + 1))
 
 
 def end_moves(tplanner, res, rows):
@@ -284,7 +388,7 @@ def end_moves(tplanner, res, rows):
         return None, None
     s, e = res.segments[0][0], res.segments[-1][1]
     zs = tplanner.base_height(rows[s][0], rows[s][0])
-    ze = tplanner.base_height(rows[e][0], rows[e][0])
+    ze = tplanner.base_height(rows[e][0], rows[e][0], printed_max_z(rows, res.segments))
     a = tplanner.lift(res.q[s], rows[s][0], tp.dirs[s], zs)
     r = tplanner.lift(res.q[e], rows[e][0], tp.dirs[e], ze)
     for m, what in ((a, "first approach"), (r, "final retract")):

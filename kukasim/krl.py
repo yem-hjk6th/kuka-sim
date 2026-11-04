@@ -3,6 +3,9 @@
 Segments are joined by planned and checked transits (kukasim/transit.py, issue #2):
 LIN retract along the nozzle axis, PTP at a safe height (lifted further if needed),
 LIN approach. If no clear transit exists the export fails with TransitError.
+Every transit PTP is preceded by its own $VEL_AXIS[1..6], lowered so the model peak
+TCP speed stays <= speed_safety_factor x max_tcp_speed_mm_s. Files are written with
+LF line endings on every platform.
 """
 from __future__ import annotations
 
@@ -29,8 +32,11 @@ def _ptp(q):
 
 
 def _emit_move(lines, m, abc):
-    """Write one planned move; LIN moves hold the orientation abc."""
+    """Write one planned move; LIN moves hold the orientation abc. A PTP that carries
+    its own axis speed gets $VEL_AXIS[1..6] right before it."""
     if m.kind == "PTP":
+        if m.vel_axis_pct is not None:
+            lines += [f"  $VEL_AXIS[{i}] = {m.vel_axis_pct:g}" for i in range(1, 7)]
         lines.append(_ptp(m.q[-1]))
     else:
         lines.append(_lin(m.tcp[-1], abc))
@@ -58,11 +64,17 @@ def write_krl(path, robot, res, rows, cfg, name, tplanner=None):
                        "vel_axis_pct_assumed": tp["before_vel_axis_pct"]})
     report = {
         "toolpath": res.toolpath.name, "segments": [list(map(int, s)) for s in res.segments],
-        "params": {k: tp[k] for k in ("safe_height_mm", "min_retract_mm", "via_heights_mm", "bed_clearance_mm",
-                                      "vel_axis_pct", "acc_axis_pct", "max_tcp_speed_mm_s")}
-        | {"bed_top_z": tpl.bed_top},
-        "speed_model": "model estimate: each axis <= vel_axis_pct of its URDF velocity (unverified); "
-                       "peak TCP speed <= max|dx/ds| * min_j(v_j/|dq_j|); controller profile not modelled",
+        "params": {k: tp[k] for k in ("safe_height_mm", "min_retract_mm", "printed_clearance_mm", "via_heights_mm",
+                                      "bed_clearance_mm", "vel_axis_pct", "acc_axis_pct", "max_tcp_speed_mm_s",
+                                      "speed_safety_factor", "allow_fast_transit", "axis_acc_deg_s2",
+                                      "max_wrist_turn_deg")}
+        | {"bed_top_z": tpl.bed_top, "enforced_tcp_speed_mm_s": tpl.speed_limit},
+        "speed_model": "model estimate: each axis <= $VEL_AXIS % of its URDF velocity (unverified) and "
+                       "$ACC_AXIS % of the assumed axis_acc_deg_s2; path rate = trapezoid in s "
+                       "(cruise min_j(v_j/|dq_j|), ramps min_j(a_j/|dq_j|)); peak TCP speed = max |dx/ds| * rate; "
+                       "controller profile not modelled",
+        "clearance_note": "move_min_clearance_mm: retract / approach LINs are checked with the tip exempt from "
+                          "the bed (they start on the print); PTP and lift / lower LINs with the tip included",
         "transits": [t.summary() for t in transits],
         "flags": [f"transit {t.seg_from}->{t.seg_to}: {f}" for t in transits for f in t.flags],
         "before_direct_ptp": before,
@@ -80,16 +92,22 @@ def write_krl(path, robot, res, rows, cfg, name, tplanner=None):
         "; LIN points carry no S/T; configuration changes happen only in PTP moves given as joint values (E6AXIS).",
         "; Joint values for every point are in trajectory.csv. Controller blending (C_DIS) is not simulated.",
         f"; Transits: LIN retract along the nozzle axis (tool -X) to >= {tp['safe_height_mm']:g} mm above the bed top,",
+        f";   and >= {tp['printed_clearance_mm']:g} mm above the highest Z printed so far,",
         f";   PTP (lifted to {', '.join(f'{h:g}' for h in tp['via_heights_mm'])} mm if the low one collides), LIN approach.",
         ";   Every transit was sampled (PTP in joint space) and checked against the bed, clamps and floor in simulation.",
-        f"; $VEL_AXIS = {tp['vel_axis_pct']:g} %, $ACC_AXIS = {tp['acc_axis_pct']:g} % on all axes. TCP speeds below are a",
-        ";   MODEL ESTIMATE (axes at <= $VEL_AXIS of the unverified URDF velocities), not controller output.",
+        f"; $VEL_AXIS = {tp['vel_axis_pct']:g} %, $ACC_AXIS = {tp['acc_axis_pct']:g} % on all axes; before each transit PTP",
+        f";   $VEL_AXIS is lowered so its peak TCP speed is <= {tpl.speed_limit:g} mm/s "
+        f"(= {tp['speed_safety_factor']:g} x {tp['max_tcp_speed_mm_s']:g}).",
+        ";   TCP speeds below are a MODEL ESTIMATE (axes at <= $VEL_AXIS of the unverified URDF velocities,",
+        ";   assumed accelerations), not controller output. Clearances: retract / approach with the tip exempt",
+        ";   from the bed (they start on the print), PTP and lift / lower with the tip included.",
         "; The first PTP comes from the unknown current robot pose and is NOT checked.",
     ]
     for t in transits:
         s = t.summary()
-        lines.append(f"; transit {t.seg_from}->{t.seg_to}: PTP at Z {s['z_mm']:.1f}, min clearance "
-                     f"{s['min_clearance_mm']:.1f} mm, bed distance {s['min_bed_distance_mm']:.1f} mm, "
+        per = ", ".join(f"{k} {v:.1f}" for k, v in s["move_min_clearance_mm"].items())
+        lines.append(f"; transit {t.seg_from}->{t.seg_to}: PTP at Z {s['z_mm']:.1f}, min clearance per move (mm): "
+                     f"{per}; bed distance {s['min_bed_distance_mm']:.1f} mm, $VEL_AXIS {s['ptp_vel_axis_pct']:g} %, "
                      f"peak TCP {s['peak_tcp_mm_s_model']:.0f} mm/s (model)")
     lines.append("; FLAGS: " + ("; ".join(report["flags"]) if report["flags"] else "none"))
     lines += [
@@ -100,7 +118,7 @@ def write_krl(path, robot, res, rows, cfg, name, tplanner=None):
         "  $APO.CDIS = 0.5",
         "  $ORI_TYPE = #VAR",
     ]
-    lines += [f"  $VEL_AXIS[{i}] = {tp['vel_axis_pct']:g}" for i in range(1, 7)]
+    lines += [f"  $VEL_AXIS[{i}] = {tp['vel_axis_pct']:g}" for i in range(1, 7)]   # first PTP
     lines += [f"  $ACC_AXIS[{i}] = {tp['acc_axis_pct']:g}" for i in range(1, 7)]
     in_seg = False
     for k, (a, b) in enumerate(res.segments):
@@ -135,6 +153,6 @@ def write_krl(path, robot, res, rows, cfg, name, tplanner=None):
     if not in_seg:
         lines.append("  ; no feasible point on this toolpath")
     lines.append("END")
-    with open(path, "w") as f:
+    with open(path, "w", newline="\n") as f:          # LF on every platform (K-2)
         f.write("\n".join(lines) + "\n")
     return report

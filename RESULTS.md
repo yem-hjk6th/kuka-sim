@@ -8,11 +8,11 @@ Default nozzle tilt cap: 30 deg. Waypoints every 1.5 mm, 72 redundancy bins (5 d
 
 | surface | points / length | planned | segments | max surface tilt | redundancy angle used | min joint-limit margin* | min abs(A5) | min clearance | runtime (states + DP) |
 |---|---|---|---|---|---|---|---|---|---|
-| dome | 1380 / 2069 mm | 100.0 % | 1 | 46 deg | 95..320 deg (span 225) | 26.2 deg | 53.2 deg | 15.0 mm | 11.8 s (8.5 + 3.3) |
-| saddle | 1370 / 2054 mm | 100.0 % | 1 | 43 deg | -50..60 deg (span 110) | 19.3 deg | 28.0 deg | 12.3 mm | 9.8 s (6.4 + 3.3) |
-| sine_wave | 1437 / 2155 mm | 100.0 % | 1 | 38 deg | 90..100 deg (span 10) | 29.3 deg | 73.5 deg | 15.0 mm | 13.7 s (9.5 + 4.1) |
-| ramp_45 | 1374 / 2061 mm | 100.0 % | 1 | 44 deg | 90..90 deg (span 0) | 29.8 deg | 73.5 deg | 15.0 mm | 11.7 s (7.7 + 4.1) |
-| perimeter | 1411 / 2116 mm | 55.7 % | 3 | 0 deg | -70..65 deg (span 135) | 27.2 deg | 47.4 deg | 0.1 mm | 12.2 s (10.6 + 1.5) |
+| dome | 1380 / 2069 mm | 100.0 % | 1 | 46 deg | 95..320 deg (span 225) | 26.2 deg | 53.2 deg | 15.0 mm | 14.4 s (10.6 + 3.8) |
+| saddle | 1370 / 2054 mm | 100.0 % | 1 | 43 deg | -50..60 deg (span 110) | 19.3 deg | 28.0 deg | 12.3 mm | 11.8 s (8.2 + 3.6) |
+| sine_wave | 1437 / 2155 mm | 100.0 % | 1 | 38 deg | 90..100 deg (span 10) | 29.3 deg | 73.5 deg | 15.0 mm | 17.3 s (12.7 + 4.6) |
+| ramp_45 | 1374 / 2061 mm | 100.0 % | 1 | 44 deg | 90..90 deg (span 0) | 29.8 deg | 73.5 deg | 15.0 mm | 14.0 s (9.7 + 4.3) |
+| perimeter | 1411 / 2116 mm | 55.7 % | 3 | 0 deg | -70..65 deg (span 135) | 27.2 deg | 47.4 deg | 0.1 mm | 14.0 s (12.3 + 1.8) |
 
 *beyond the 2 deg margin from cell.yaml.
 
@@ -31,10 +31,10 @@ A tilt cap counts as reachable when the whole path is planned in one continuous 
 
 | surface | reachable caps | runtime per run |
 |---|---|---|
-| dome | 0-60 deg (all tested) | 12.1-12.9 s |
-| saddle | 0-60 deg (all tested) | 10.0-10.7 s |
-| sine_wave | 0-60 deg (all tested) | 11.7-14.6 s |
-| ramp_45 | 0-60 deg (all tested) | 10.6-11.8 s |
+| dome | 0-60 deg (all tested) | 13.1-15.2 s |
+| saddle | 0-60 deg (all tested) | 11.2-12.4 s |
+| sine_wave | 0-60 deg (all tested) | 14.5-16.8 s |
+| ramp_45 | 0-60 deg (all tested) | 12.0-13.4 s |
 
 ### Same surfaces moved to the bed quadrants
 
@@ -103,16 +103,18 @@ At the bed centre the window is set by A5 = +-120 deg (+-118 with the margin): w
 
 ## KRL export: moves between segments (issue #2)
 
-Before, a segment break in the export was a PTP straight from the last printed point to the next start, at print height, unchecked, at the controller's default axis speed. Now each break is a LIN retract along the nozzle axis to at least 30 mm above the bed top, a PTP that is sampled in joint space and checked against the bed, the clamps and the floor (tip included), lifted to 80, 120, 180 mm if it collides, and a LIN approach; if no candidate is clear, the export fails. `$VEL_AXIS` = 5 % and `$ACC_AXIS` = 10 % are set on all axes.
+Before, a segment break in the export was a PTP straight from the last printed point to the next start, at print height, unchecked, at the controller's default axis speed. Now each break is a LIN retract along the nozzle axis to at least 30 mm above the bed top (and at least 15 mm above the highest Z printed so far), a PTP that is sampled in joint space and checked against the bed, the clamps and the floor (tip included), lifted to 80, 120, 180 mm if it collides, and a LIN approach; if no candidate is clear, the export fails. `$VEL_AXIS` = 5 % and `$ACC_AXIS` = 10 % are set on all axes; before every transit PTP `$VEL_AXIS` is lowered to floor(5 x min(1, 0.8 x 100 / peak)) % (at least 1 %) so the model peak is <= 80 mm/s; a transit still above that at 1 % fails the export unless `allow_fast_transit` is set. A transit that turns A4 or A6 by more than 180 deg is flagged (hose / cable wrap not modelled).
 
-TCP speeds are a **model estimate**: every axis at most `$VEL_AXIS` % of its URDF velocity (unverified), the leading axis sets the rate along the joint-space line, peak TCP speed = max |dx/ds| x that rate. 'Before' assumes 100 % axis speed. Clearance is the margin to the inflated collision boxes (bed gap 5 mm, clamps +20 mm); negative means inside. The bed top is at Z 0.95.
+TCP speeds are a **model estimate**: every axis at most `$VEL_AXIS` % of its URDF velocity (unverified) and `$ACC_AXIS` % of an assumed acceleration, the leading axis sets a trapezoid rate along the joint-space line (a move too short to reach cruise is capped by its distance), peak TCP speed = max |dx/ds| x that rate. 'Before' assumes 100 % axis speed and acceleration. Clearance is the margin to the inflated collision boxes (bed gap 5 mm, clamps +20 mm); negative means inside. The bed top is at Z 0.95.
 
-| toolpath | transit | before: min clearance (obstacles hit) | before: lowest TCP Z | before: peak TCP (model) | after: PTP height | after: min clearance | after: min distance to bed | after: peak TCP (model) | rejected candidates | flags |
-|---|---|---|---|---|---|---|---|---|---|---|
-| perimeter | 0->1 | -36.9 mm (bed, floor, clamp_plus_x_plus_y) | Z -44.8 | 1819 mm/s | Z 81.0 | 1.3 mm | 27.0 mm | 84 mm/s | z 31: PTP collides with clamp_plus_x_plus_y (clearance -15.8 mm at 86 % of the move) | none |
-| perimeter | 1->2 | -20.8 mm (floor, bed, clamp_plus_x_minus_y) | Z -30.4 | 1810 mm/s | Z 81.0 | 0.2 mm | 27.0 mm | 88 mm/s | z 31: PTP collides with bed (clearance -8.0 mm at 10 % of the move) | none |
+| toolpath | transit | before: min clearance (obstacles hit) | before: lowest TCP Z | before: peak TCP (model) | after: PTP height | after: min clearance per move | after: min distance to bed | after: $VEL_AXIS | after: peak TCP (model) | rejected candidates | flags |
+|---|---|---|---|---|---|---|---|---|---|---|---|
+| perimeter | 0->1 | -17.9 mm (clamp_plus_x_plus_y, bed) | Z 2.2 | 949 mm/s | Z 81.0 | retract 1.4, lift 15.4, transit 17.1, lower 15.3, approach 1.3 mm | 27.0 mm | 4 % | 76 mm/s | z 31: PTP collides with clamp_plus_x_plus_y (clearance -10.0 mm at 6 % of the move) | none |
+| perimeter | 1->2 | -15.7 mm (clamp_plus_x_minus_y, bed) | Z 2.2 | 458 mm/s | Z 81.0 | retract 0.2, lift 14.6, transit 19.0, lower 15.2, approach 1.1 mm | 27.0 mm | 5 % | 64 mm/s | z 31: PTP collides with clamp_plus_x_minus_y (clearance -10.0 mm at 15 % of the move) | none |
 
-Flag thresholds: peak TCP speed > 100 mm/s, any collision, any primitive (tip included) closer than 15 mm to the bed at transit height. Retract and approach LINs run at the print `$VEL.CP` with the orientation held. Every export also approaches its first point and leaves its last point the same way; the first PTP comes from the unknown current pose and is not checked.
+Clearance per move: retract / approach LINs with the tip exempt from the bed (they start on the print), PTP and lift / lower LINs with the tip included.
+
+Flag thresholds: peak TCP speed > 80 mm/s (only with `allow_fast_transit`), |dA4| or |dA6| > 180 deg, any collision, any primitive (tip included) closer than 15 mm to the bed at transit height. Retract and approach LINs run at the print `$VEL.CP` with the orientation held. Every export also approaches its first point and leaves its last point the same way; the first PTP comes from the unknown current pose and is not checked.
 
 ## Files per toolpath (`results/<surface>/`)
 

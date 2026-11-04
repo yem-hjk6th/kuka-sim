@@ -9,6 +9,7 @@
  "params": {
   "safe_height_mm": 30,
   "min_retract_mm": 5,
+  "printed_clearance_mm": 15,
   "via_heights_mm": [
    80,
    120,
@@ -18,9 +19,22 @@
   "vel_axis_pct": 5,
   "acc_axis_pct": 10,
   "max_tcp_speed_mm_s": 100,
-  "bed_top_z": 0.95
+  "speed_safety_factor": 0.8,
+  "allow_fast_transit": false,
+  "axis_acc_deg_s2": [
+   1000,
+   1000,
+   1000,
+   1000,
+   1000,
+   1000
+  ],
+  "max_wrist_turn_deg": 180,
+  "bed_top_z": 0.95,
+  "enforced_tcp_speed_mm_s": 80.0
  },
- "speed_model": "model estimate: each axis <= vel_axis_pct of its URDF velocity (unverified); peak TCP speed <= max|dx/ds| * min_j(v_j/|dq_j|); controller profile not modelled",
+ "speed_model": "model estimate: each axis <= $VEL_AXIS % of its URDF velocity (unverified) and $ACC_AXIS % of the assumed axis_acc_deg_s2; path rate = trapezoid in s (cruise min_j(v_j/|dq_j|), ramps min_j(a_j/|dq_j|)); peak TCP speed = max |dx/ds| * rate; controller profile not modelled",
+ "clearance_note": "move_min_clearance_mm: retract / approach LINs are checked with the tip exempt from the bed (they start on the print); PTP and lift / lower LINs with the tip included",
  "transits": [],
  "flags": [],
  "before_direct_ptp": []

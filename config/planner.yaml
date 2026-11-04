@@ -63,7 +63,16 @@ transit:
                              # to the bed than this (retract / approach LINs are exempt: they start at the print)
   vel_axis_pct: 5            # $VEL_AXIS[1..6] in the export, percent of each axis' maximum speed
   acc_axis_pct: 10           # $ACC_AXIS[1..6] in the export, percent
-  max_tcp_speed_mm_s: 100    # flag a transit whose estimated peak TCP speed is above this
+  max_tcp_speed_mm_s: 100    # TCP speed rule for transits (mm/s)
+  speed_safety_factor: 0.8   # k: before each transit PTP, $VEL_AXIS is lowered so that the model peak TCP speed is
+                             # <= k * max_tcp_speed_mm_s (k < 1 because the URDF axis maxima are unverified)
+  allow_fast_transit: false  # false: a transit still above k * max_tcp_speed_mm_s at $VEL_AXIS = 1 % raises
+                             # TransitError; true: it is exported and flagged
+  axis_acc_deg_s2: [1000, 1000, 1000, 1000, 1000, 1000]   # ASSUMED axis accelerations at $ACC_AXIS = 100 %
+                             # (not in the datasheet, not measured). Only used to cap the speed estimate of moves
+                             # too short to reach cruise; a higher value gives a higher (more conservative) estimate.
+  printed_clearance_mm: 15   # transit height >= highest Z printed so far + this (material already on the bed)
+  max_wrist_turn_deg: 180    # flag a transit that turns A4 or A6 by more than this (hose / cable wrap not modelled)
   ptp_sample_deg: 0.5        # PTP collision sampling: max joint change between samples
   lin_sample_mm: 1.0         # LIN collision sampling: max TCP step between samples
   lin_max_joint_step_deg: 3.0   # a LIN whose IK jumps more than this between samples is not continuous
