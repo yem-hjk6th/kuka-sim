@@ -6,9 +6,10 @@
 
 Writes <program>_check.md and <program>_check.json next to the program, or into --out
 (a program under config/ or results/ is reported into out/src_check/ instead: the checker
-never writes into config/ or results/). Exit code: 0 no flag, 1 at least one flag,
-2 parse or frame error. "No flag" means no flag in this model; it does not replace a
-check on the controller.
+never writes into config/ or results/). Exit code: 0 every motion checked and no flag,
+1 at least one flag, 2 parse / frame error or a statement not interpreted, 3 no flag but
+at least one motion not checked (e.g. the first motion without --start-axis). "No flag"
+means no flag in this model; it does not replace a check on the controller.
 """
 import argparse
 import sys
@@ -35,7 +36,7 @@ def main(argv=None):
     ap.add_argument("--no-local-keep-out", action="store_true",
                     help="do not load config/keep_out.local.yaml")
     ap.add_argument("--start-axis", nargs=6, type=float, metavar=("A1", "A2", "A3", "A4", "A5", "A6"),
-                    help="joint values (deg) before the first motion; otherwise the first PTP is not checked")
+                    help="joint values (deg) before the first motion; otherwise the first motion is not checked")
     a = ap.parse_args(argv)
     try:
         rep, md, js = check_file(a.program, out=a.out, keep_out_path=a.keep_out,
@@ -45,7 +46,7 @@ def main(argv=None):
         return 2
     s = rep["summary"]
     print(f"{rep['program']}: {rep['result']} (exit {rep['exit_code']}); {s['motions']} motions, "
-          f"{s['flagged_motions']} flagged; flags: "
+          f"{s['flagged_motions']} flagged, {s['not_checked_motions']} not checked; flags: "
           + (", ".join(f"{k} {v}" for k, v in s["flag_counts"].items()) or "none")
           + (f"; not interpreted: lines {s['not_interpreted_lines']}" if s["not_interpreted_lines"] else ""))
     for i in rep["issues"]:
