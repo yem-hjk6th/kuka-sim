@@ -101,7 +101,20 @@ At the bed centre the window is set by A5 = +-120 deg (+-118 with the margin): w
 
 ![turn window](results/turn_window.png)
 
+## KRL export: moves between segments (issue #2)
+
+Before, a segment break in the export was a PTP straight from the last printed point to the next start, at print height, unchecked, at the controller's default axis speed. Now each break is a LIN retract along the nozzle axis to at least 30 mm above the bed top, a PTP that is sampled in joint space and checked against the bed, the clamps and the floor (tip included), lifted to 80, 120, 180 mm if it collides, and a LIN approach; if no candidate is clear, the export fails. `$VEL_AXIS` = 5 % and `$ACC_AXIS` = 10 % are set on all axes.
+
+TCP speeds are a **model estimate**: every axis at most `$VEL_AXIS` % of its URDF velocity (unverified), the leading axis sets the rate along the joint-space line, peak TCP speed = max |dx/ds| x that rate. 'Before' assumes 100 % axis speed. Clearance is the margin to the inflated collision boxes (bed gap 5 mm, clamps +20 mm); negative means inside. The bed top is at Z 0.95.
+
+| toolpath | transit | before: min clearance (obstacles hit) | before: lowest TCP Z | before: peak TCP (model) | after: PTP height | after: min clearance | after: min distance to bed | after: peak TCP (model) | rejected candidates | flags |
+|---|---|---|---|---|---|---|---|---|---|---|
+| perimeter | 0->1 | -36.9 mm (bed, floor, clamp_plus_x_plus_y) | Z -44.8 | 1819 mm/s | Z 81.0 | 1.3 mm | 27.0 mm | 84 mm/s | z 31: PTP collides with clamp_plus_x_plus_y (clearance -15.8 mm at 86 % of the move) | none |
+| perimeter | 1->2 | -20.8 mm (floor, bed, clamp_plus_x_minus_y) | Z -30.4 | 1810 mm/s | Z 81.0 | 0.2 mm | 27.0 mm | 88 mm/s | z 31: PTP collides with bed (clearance -8.0 mm at 10 % of the move) | none |
+
+Flag thresholds: peak TCP speed > 100 mm/s, any collision, any primitive (tip included) closer than 15 mm to the bed at transit height. Retract and approach LINs run at the print `$VEL.CP` with the orientation held. Every export also approaches its first point and leaves its last point the same way; the first PTP comes from the unknown current pose and is not checked.
+
 ## Files per toolpath (`results/<surface>/`)
 
-`trajectory.csv` (joints, TCP, ABC, margins), `joints.png`, `margins.png`, `feasibility.png`, `animation.gif`, `<surface>.src` (KRL, NOT RUN header).
+`trajectory.csv` (joints, TCP, ABC, margins), `joints.png`, `margins.png`, `feasibility.png`, `animation.gif`, `<surface>.src` (KRL, NOT RUN header), `export_report.json` (transits and their flags).
 

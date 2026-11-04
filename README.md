@@ -20,6 +20,7 @@ python validate_fk.py data/fk_pairs_template.csv
 - `kukasim/kinematics.py`: FK from the URDF with TOOL 3 / BASE 0, analytic IK returning all 32 configuration slots (shoulder, elbow, wrist flip, A4 turn, A6 turn). Rotation matrices inside, KUKA ABC only at the boundary.
 - `kukasim/planner.py`: DP over (point x redundancy-angle bin x IK slot); reports infeasible stretches and breaks.
 - `kukasim/collision.py`: capsules for links and tool, boxes for bed and clamps (sizes in `config/planner.yaml`, all estimated).
+- `kukasim/transit.py`: moves between printed segments in the KRL export (issue #2): LIN retract along the nozzle axis to a safe height, PTP sampled in joint space and collision-checked (lifted further if needed, otherwise the export fails), LIN approach; `$VEL_AXIS` / `$ACC_AXIS` from `config/planner.yaml` and a model estimate of the peak TCP speed. `python scripts/export_krl.py --out results` rewrites only the `.src` files and their `export_report.json`.
 - `kukasim/toolpaths.py`: dome, saddle, sine wave, 45° ramp and a bed perimeter path.
 - `kukasim/slicer_import.py`: optional reader for `non_planar_slicer` KRL output (separate module; no GPL code).
 - `validate_fk.py`: compares FK with pendant (A1..A6, X..C) pairs.

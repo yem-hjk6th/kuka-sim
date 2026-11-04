@@ -4,17 +4,37 @@
 ; toolpath: sine_wave, max tilt 30 deg, 1437 points, 1437 planned
 ; TOOL 3 assumed = {X 225.55, Y -0.6, Z 72.83, A 0.0, B 0.0, C 0.0} (copied, to be re-confirmed); BASE 0
 ; Orientation is A/B/C (Rz(A) Ry(B) Rx(C)); B ~ 90 is an Euler singularity, only A - C matters there.
-; LIN points carry no S/T; each continuous segment starts with an axis-specific PTP (E6AXIS).
+; LIN points carry no S/T; configuration changes happen only in PTP moves given as joint values (E6AXIS).
 ; Joint values for every point are in trajectory.csv. Controller blending (C_DIS) is not simulated.
+; Transits: LIN retract along the nozzle axis (tool -X) to >= 30 mm above the bed top,
+;   PTP (lifted to 80, 120, 180 mm if the low one collides), LIN approach.
+;   Every transit was sampled (PTP in joint space) and checked against the bed, clamps and floor in simulation.
+; $VEL_AXIS = 5 %, $ACC_AXIS = 10 % on all axes. TCP speeds below are a
+;   MODEL ESTIMATE (axes at <= $VEL_AXIS of the unverified URDF velocities), not controller output.
+; The first PTP comes from the unknown current robot pose and is NOT checked.
+; FLAGS: none
 DEF sine_wave()
   $BASE = $NULLFRAME
   $TOOL = TOOL_DATA[3]
   $VEL.CP = 0.012
   $APO.CDIS = 0.5
   $ORI_TYPE = #VAR
+  $VEL_AXIS[1] = 5
+  $VEL_AXIS[2] = 5
+  $VEL_AXIS[3] = 5
+  $VEL_AXIS[4] = 5
+  $VEL_AXIS[5] = 5
+  $VEL_AXIS[6] = 5
+  $ACC_AXIS[1] = 10
+  $ACC_AXIS[2] = 10
+  $ACC_AXIS[3] = 10
+  $ACC_AXIS[4] = 10
+  $ACC_AXIS[5] = 10
+  $ACC_AXIS[6] = 10
+  ; approach above the start of segment 0 (Z 31.0)
+  PTP {A1 37.5375, A2 -35.7593, A3 114.7142, A4 127.0212, A5 83.2968, A6 158.7985} ; from the current pose: NOT checked
+  LIN {X 593.000, Y -530.000, Z 25.950, A -0.0000, B 60.0000, C 90.0000}
   ; segment 0: points 0..1436
-  PTP {A1 37.3709, A2 -35.1644, A3 114.2431, A4 126.8670, A5 83.3965, A6 158.7182}
-  LIN {X 593.000, Y -530.000, Z 25.950, A -0.0000, B 60.0000, C 90.0000} C_DIS
   LIN {X 594.180, Y -530.000, Z 26.877, A 0.0000, B 60.0000, C 90.0000} C_DIS
   LIN {X 595.363, Y -530.000, Z 27.801, A -0.0000, B 60.0000, C 90.0000} C_DIS
   LIN {X 596.548, Y -530.000, Z 28.721, A -0.0000, B 60.0000, C 90.0000} C_DIS
@@ -1450,5 +1470,7 @@ DEF sine_wave()
   LIN {X 829.452, Y -290.000, Z 23.179, A -0.0000, B 60.0000, C 90.0000} C_DIS
   LIN {X 830.637, Y -290.000, Z 24.099, A 0.0000, B 60.0000, C 90.0000} C_DIS
   LIN {X 831.820, Y -290.000, Z 25.023, A 0.0000, B 60.0000, C 90.0000} C_DIS
-  LIN {X 833.000, Y -290.000, Z 25.950, A 0.0000, B 60.0000, C 90.0000} C_DIS
+  LIN {X 833.000, Y -290.000, Z 25.950, A 0.0000, B 60.0000, C 90.0000}
+  ; final retract to Z 30.9
+  LIN {X 830.113, Y -290.000, Z 30.950, A 0.0000, B 60.0000, C 90.0000}
 END

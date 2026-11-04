@@ -1,0 +1,27 @@
+{
+ "toolpath": "saddle",
+ "segments": [
+  [
+   0,
+   1369
+  ]
+ ],
+ "params": {
+  "safe_height_mm": 30,
+  "min_retract_mm": 5,
+  "via_heights_mm": [
+   80,
+   120,
+   180
+  ],
+  "bed_clearance_mm": 15,
+  "vel_axis_pct": 5,
+  "acc_axis_pct": 10,
+  "max_tcp_speed_mm_s": 100,
+  "bed_top_z": 0.95
+ },
+ "speed_model": "model estimate: each axis <= vel_axis_pct of its URDF velocity (unverified); peak TCP speed <= max|dx/ds| * min_j(v_j/|dq_j|); controller profile not modelled",
+ "transits": [],
+ "flags": [],
+ "before_direct_ptp": []
+}
