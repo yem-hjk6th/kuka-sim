@@ -1,4 +1,4 @@
-"""Corner test: planar Hilbert curve with a per-corner speed-override ratio.
+"""Corner test: Hilbert curve layer with a per-corner speed ratio.
 
 Simulation only. Nothing here connects to a robot or a controller.
 
@@ -34,7 +34,12 @@ def main(argv=None):
     ap.add_argument("--min-straight", type=float, help="minimum straight between override windows, mm")
     ap.add_argument("--cdis", type=float, help="C_DIS in mm")
     ap.add_argument("--straight-speed", type=float, help="mm/s (default: process.print_speed_mm_s)")
-    ap.add_argument("--straight-override", type=float, help="$OV_PRO on straights, %%")
+    ap.add_argument("--straight-override", type=float, help="pc mode: $OV_PRO on straights, %%")
+    ap.add_argument("--speed-mode", choices=["krl", "pc"],
+                    help="krl (default): $VEL.CP per corner zone in the program; pc: $OV_PRO per schedule.csv "
+                         "(needs a PC-side follower, not provided here)")
+    ap.add_argument("--d-zone", type=float, help="krl mode: corner zone half-length, mm (>= 2 x C_DIS)")
+    ap.add_argument("--dip", type=float, help="corner dip factor of the speed model (1.0 = no dip)")
     args = ap.parse_args(argv)
 
     cfg = load_config()
@@ -42,7 +47,8 @@ def main(argv=None):
     ct = hc.generate(cfg, robot, order=args.order, side_mm=args.side, center_xy=args.center,
                      ratios=args.ratios, min_repeats=args.min_repeats, seed=args.seed,
                      min_straight_mm=args.min_straight, c_dis_mm=args.cdis,
-                     straight_speed_mm_s=args.straight_speed, straight_override_pct=args.straight_override)
+                     straight_speed_mm_s=args.straight_speed, straight_override_pct=args.straight_override,
+                     speed_mode=args.speed_mode, d_zone_mm=args.d_zone, corner_dip_factor=args.dip)
     out = Path(args.out)
     out.mkdir(parents=True, exist_ok=True)
     hc.write_waypoints_csv(out / "waypoints.csv", ct, robot)
@@ -52,8 +58,9 @@ def main(argv=None):
     hc.plot_path(out / "path.png", ct, cfg, CollisionModel(robot, cfg))
     hc.plot_speed(out / "speed.png", ct)
     files = [("waypoints.csv", "start, corners and end with corner id, ratio, segment lengths, joints, "
-              "predicted speeds (model)"),
-             ("schedule.csv", "one row per corner for the PC-side override controller"),
+              "predicted speeds (model) and model-only bead width"),
+             ("schedule.csv", "one row per corner: zones and corner speed (pc mode: the $OV_PRO schedule for a "
+              "PC-side follower, not provided in this repository)"),
              ("speed_profile.csv", "model speed along the path"),
              ("hilbert_corner.src", "KRL export (NOT RUN)"),
              ("path.png", "path with corner ids and ratios"),

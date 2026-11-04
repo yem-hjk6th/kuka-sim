@@ -48,7 +48,28 @@ def build_obstacles(cfg) -> list[Box]:
             continue
         boxes.append(Box(ob["name"], np.array(lo, float), np.array(hi, float), 0.0,
                          ob.get("status", "estimated")))
+    boxes += keep_out_boxes(cfg)
     return boxes
+
+
+def keep_out_boxes(cfg) -> list[Box]:
+    """Optional site keep-out boxes from cell.yaml ``keep_out`` (empty in the repository:
+    site keep-outs are added to a local copy and never committed). Each entry:
+    {name, x: [lo, hi], y: [lo, hi], z: [lo, hi], clearance_mm (optional)}, BASE 0, mm.
+    They are checked like the clamps, nozzle tip included."""
+    out = []
+    for k, ko in enumerate(cfg.cell.get("keep_out") or []):
+        name = ko.get("name", f"keep_out_{k}")
+        try:
+            lo = [float(ko[a][0]) for a in "xyz"]
+            hi = [float(ko[a][1]) for a in "xyz"]
+        except (KeyError, IndexError, TypeError) as e:
+            raise ValueError(f"cell.yaml keep_out {name!r}: needs x, y, z as [lo, hi] in mm ({e})") from None
+        if any(h <= l for l, h in zip(lo, hi)):
+            raise ValueError(f"cell.yaml keep_out {name!r}: every [lo, hi] needs lo < hi")
+        out.append(Box(name, np.array(lo), np.array(hi), float(ko.get("clearance_mm", 0.0)),
+                       ko.get("status", "site")))
+    return out
 
 
 class CollisionModel:

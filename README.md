@@ -25,15 +25,24 @@ python validate_fk.py data/fk_pairs_template.csv
 - `validate_fk.py`: compares FK with pendant (A1..A6, X..C) pairs.
 - `results/`, `RESULTS.md`: outputs of the run for the PR.
 
-## Corner test: Hilbert curve with per-corner speed override (simulation only)
+## Corner test: Hilbert curve with a per-corner speed ratio (simulation only)
 
 ```
 python scripts/run_hilbert_corner.py                 # writes results/hilbert_corner/
 python scripts/run_hilbert_corner.py --order 3 --seed 2 --min-straight 20 --out out/hc
+python scripts/run_hilbert_corner.py --speed-mode pc  # the PC-side $OV_PRO variant (see below)
 ```
 
-One planar Hilbert curve (order 3: 50 corners of 90 deg) on the first layer, nozzle vertical (A0 B90 C0, TOOL 3), extruder rpm fixed. A PC-side controller sets `$OV_PRO` to the straight override (60 %) on straights and to `r x 60 %` around each corner, with r from 0.5 to 1.5 in a seeded random order (each ratio at least twice). Corners whose straight to a neighbour is shorter than 15 mm (between override windows; flow-response assumption) get r = 1 and are listed.
+One Hilbert curve (order 3: 50 corners of 90 deg) on the first layer, nozzle vertical (A0 B90 C0, TOOL 3), extruder rpm fixed. The TCP speed around each corner is r x the straight speed, with r from 0.5 to 1.5 in a seeded random order (each ratio at least twice). Corners whose straight to a neighbour (between the corner zones) is shorter than 15 mm (flow-response assumption) get r = 1 and are listed.
 
-- `kukasim/hilbert_corner.py`: geometry, square fitted to the reachable bed, schedule, corner-speed model (C_DIS blend + trapezoid; **model estimate**), checks over the whole path (DP planner with one fixed angle, joint limits, singularities, collisions, TCP and joint speeds, nozzle-to-bed distance) and the outputs.
-- Parameters: `hilbert_corner` in `config/planner.yaml` (all choices or assumptions; nothing in `config/cell.yaml` changed).
-- `results/hilbert_corner/`: `waypoints.csv`, `schedule.csv` (for the PC-side controller), `speed_profile.csv`, `hilbert_corner.src` (NOT RUN), `path.png`, `speed.png`, `report.md`.
+- **Speed mode `krl` (default):** the program itself splits each leg at +-`d_zone_mm` (default 6 mm, must be >= 2 x C_DIS) around every corner and sets `$VEL.CP = r x v` on the two corner sub-segments, back to v after them, so the ratio is path-synchronous in the program. No PC is needed.
+- **Speed mode `pc` (option):** one `$VEL.CP`; `$OV_PRO` is switched to `r x 60 %` around each corner per `schedule.csv`. This needs a PC-side schedule follower that reads the position and writes the override; **this repository does not provide one.**
+- Layer Z is z(x, y) = z0 + kx (x - x0) + ky (y - y0) (`layer_z`); the default is flat at bed top_z + layer height.
+- The default square is fitted to the reachable bed, kept >= `clamp_margin_mm` (XY) from the inflated clamp boxes and capped at `max_side_mm` (300 mm).
+- **Scope of the checks: checked against cell.yaml only; site keep-outs must be checked locally before running.** `config/cell.yaml` has an optional `keep_out` list of boxes (`{name, x: [lo, hi], y: [lo, hi], z: [lo, hi], clearance_mm}`), checked like the clamps. It is empty in the repository on purpose: site keep-outs are added to a local copy and never committed.
+- The programs assume the controller's INI / BAS(#INITMOV,0) defaults for everything they do not set (`$ACC.CP`, `$VEL.ORI`, `$ACC.ORI`, ...). `$APO.CDIS` is always set explicitly. The approach PTP gets `$VEL_AXIS` / `$ACC_AXIS` (5 % / 10 %) and an IK target inside the hard limits; the PTP from the current pose is not checked.
+- The corner-speed model (C_DIS blend + trapezoid, optional `corner_dip_factor`, default 1.0 = no dip) is a **model estimate**; predicted bead widths are model-only. Blended 90 deg corners dip below line speed on real controllers: the logged speed decides.
+- Guards: every segment >= 2 x C_DIS, corner zones disjoint, every LIN > 0.5 mm; otherwise `generate` raises `ValueError` with the offending segments.
+- `kukasim/hilbert_corner.py`: geometry, square fit, schedule, corner-speed model, checks over the whole path (DP planner with one fixed angle, joint limits, singularities, collisions incl. keep-outs, clamp margin, TCP and joint speeds, nozzle-to-bed distance) and the outputs.
+- Parameters: `hilbert_corner` in `config/planner.yaml` (all choices or assumptions).
+- `results/hilbert_corner/`: `waypoints.csv`, `schedule.csv` (corner zones; the PC schedule in `pc` mode), `speed_profile.csv`, `hilbert_corner.src` (NOT RUN, LF line endings), `path.png`, `speed.png`, `report.md`.

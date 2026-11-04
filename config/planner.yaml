@@ -56,27 +56,45 @@ collision:
 hilbert_corner:
   order: 3                   # Hilbert order n: 4^n vertices on a 2^n x 2^n grid
   side_mm: null              # null: largest square (rounded down to 10 mm) that fits the reachable bed
+                             # with fit_margin_mm and clamp_margin_mm, at most max_side_mm
+  max_side_mm: 300           # cap of the fitted side (a smaller square away from the clamps)
+  clamp_margin_mm: 60        # fitted square >= this far (XY) from every inflated clamp box in cell.yaml (checked)
   center_xy: null            # null: centre of that square; set both side_mm and center_xy to place it by hand
   fit_margin_mm: 20          # margin of the fitted square to unreachable / colliding / off-bed points
   fit_grid_mm: 5             # resolution of the reachability map used for the fit
   bed_edge_margin_mm: 20     # nozzle tip at least this far inside the bed outline (check)
   theta_deg: 0.0             # rotation about the vertical nozzle; 0 = A0 B90 C0 of the planar programs
   approach_lift_mm: 20       # start / end the layer with a vertical LIN from this height
+  approach_vel_axis_pct: 5   # $VEL_AXIS[1..6] for the approach PTP (same default as the KRL export transits)
+  approach_acc_axis_pct: 10  # $ACC_AXIS[1..6] for the approach PTP
+  layer_z:                   # z(x, y) = z0 + kx (x - x0) + ky (y - y0); default flat
+    z0: null                 # null: bed top_z + process layer height (cell.yaml)
+    kx: 0.0                  # slope along X (mm / mm)
+    ky: 0.0                  # slope along Y (mm / mm)
+    x0: null                 # null: centre of the square
+    y0: null
+  speed_mode: krl            # krl (default): the program splits each leg at +-d_zone_mm around every corner and
+                             # sets $VEL.CP = r x v on the corner sub-segments (path-synchronous, no PC needed).
+                             # pc: $OV_PRO switched per schedule.csv by a PC-side schedule follower, which this
+                             # repository does NOT provide (window_* and pc_latency_s apply only to this mode)
+  d_zone_mm: 6               # krl mode: corner zone half-length; must be >= 2 x c_dis_mm
   ratios: [0.5, 0.7, 0.85, 1.0, 1.15, 1.3, 1.5]   # r = corner override / straight override
   min_repeats: 2             # every ratio is used at least this often
   seed: 1                    # seeded random order of the ratios over the corners
   straight_speed_mm_s: null  # null: process.print_speed_mm_s from cell.yaml
-  straight_override_pct: 60  # $OV_PRO on straights; r_max * 60 = 90 % stays <= 100 %
-  window_before_mm: 10       # PC switches to the corner override this far before the corner vertex
-  window_after_mm: 5         # ... and back to the straight override this far after it
-  min_straight_mm: 15        # ASSUMPTION: extruder flow responds in a few tenths of a second; at ~12 mm/s
+  straight_override_pct: 60  # pc mode: $OV_PRO on straights; r_max * 60 = 90 % stays <= 100 %
+  window_before_mm: 10       # pc mode: PC switches to the corner override this far before the corner vertex
+  window_after_mm: 5         # pc mode: ... and back to the straight override this far after it
+  min_straight_mm: 15        # (between corner zones) ASSUMPTION: extruder flow responds in a few tenths of a second; at ~12 mm/s
                              # 0.3 s is ~4 mm, so 15 mm (~4 time constants) between override windows keeps one
                              # corner's transient out of the next. Corners with a shorter straight get r = 1.
   # Corner-speed model (model estimate only; compare with the speed logged by the controller)
   c_dis_mm: 3.0              # $APO.CDIS used in the export; KRC caps it at half the shorter adjacent segment
   path_acc_mm_s2: 500        # ASSUMED path acceleration for override changes (trapezoid); not read from the KRC
   lateral_acc_mm_s2: 500     # ASSUMED lateral acceleration limit in the blend arc (v <= sqrt(a R_min))
-  pc_latency_s: 0.10         # ASSUMED delay from the PC's position read to the new override taking effect
+  pc_latency_s: 0.10         # pc mode: ASSUMED delay from the PC's position read to the new override taking effect
+  corner_dip_factor: 1.0     # commanded speed inside each blend x this (1.0 = no dip, the old model). Blended
+                             # 90 deg corners dip below line speed on real controllers; the logged speed decides
   # Check thresholds
   max_tcp_speed_mm_s: 100    # flag any commanded TCP speed above this
   min_abs_a5_deg: 10         # wrist singularity
@@ -85,3 +103,4 @@ hilbert_corner:
   min_nozzle_bed_mm: 0.5     # nozzle tip above the highest bed point
   bed_top_max_z: 1.38        # highest measured bed top (cell.yaml comment: 1.38 at the +X/+Y corner, cloth tape)
   ds_mm: 1.0                 # sampling of the blended path for the checks and the speed profile
+  min_lin_mm: 0.5            # guard: every LIN of the export must be longer than this

@@ -1,12 +1,28 @@
-"""Corner test: one planar Hilbert curve with a different speed-override ratio at every corner.
+"""Corner test: one Hilbert curve layer with a different corner speed ratio at every corner.
 
 Simulation only. The lab prints one layer of a Hilbert curve (many 90 deg
-corners) with the extruder rpm held fixed. A PC-side controller sets the
-program override to ``ov_straight`` on the straights and to
-``r * ov_straight`` around each corner, where r = (corner override) /
-(straight override) differs per corner. Bead width scales roughly with
-flow / speed, so r < 1 should widen the corner bead and r > 1 thin it; one
+corners) with the extruder rpm held fixed. The TCP speed around each corner is
+r x the straight speed, where r differs per corner. Bead width scales roughly
+with flow / speed, so r < 1 should widen the corner bead and r > 1 thin it; one
 print then shows the trend of corner bead width over r.
+
+Two ways to set the corner speed (``speed_mode``):
+  * ``krl`` (default): the program itself splits each leg at +-``d_zone_mm``
+    around every corner and sets ``$VEL.CP = r x v`` on the two corner
+    sub-segments, back to v after them. The ratio is path-synchronous in the
+    program (no PC in the loop); d_zone must be >= 2 x C_DIS so the corner
+    blend fits inside the zone.
+  * ``pc``: the program runs at one $VEL.CP and a PC-side controller switches
+    ``$OV_PRO`` to ``r x ov_straight`` from ``window_before_mm`` before to
+    ``window_after_mm`` after each vertex, per schedule.csv. This needs a
+    PC-side schedule follower, which this repository does NOT provide.
+
+The layer is planar or tilted: z(x, y) = z0 + kx (x - x0) + ky (y - y0)
+(``layer_z``; default flat at bed top_z + layer height).
+
+Obstacles are those in config/cell.yaml (clamps and the optional ``keep_out``
+list, empty in the repository). "Checks passed" therefore means checked against
+cell.yaml only: site keep-outs must be checked locally before running.
 
 This module builds the path, the per-corner schedule, a simple corner-speed
 model (a model estimate, to be compared with the speed the controller logs)
@@ -18,12 +34,17 @@ Corner-speed model (stated assumptions, none verified on the controller):
     starts and ends at d = min(C_DIS, half the shorter adjacent segment) from
     the vertex; it is modelled as the quadratic Bezier with the vertex as
     control point (minimum radius d / sqrt(2) at a 90 deg corner).
-  * The commanded path speed is $VEL.CP * override. The override switches to
-    the corner value ``window_before`` before the vertex and back
-    ``window_after`` after it, each switch delayed by ``pc_latency``.
+  * The commanded path speed is $VEL.CP * override. The corner value applies
+    from ``zone_before`` before the vertex to ``zone_after`` after it (krl:
+    +-d_zone, no delay; pc: the override windows, each switch delayed by
+    ``pc_latency``).
   * The speed follows the command with a trapezoid profile (constant path
     acceleration ``path_acc``, no jerk limit), is capped in the blend by
     sqrt(lateral_acc * R), and is zero at the exact stops at start and end.
+  * ``corner_dip_factor`` scales the commanded speed inside each blend (default
+    1.0 = no dip). Real controllers slow down in blended 90 deg corners below
+    the programmed speed; the factor is a placeholder for that, the logged
+    speed decides. Predicted bead widths are model-only.
 """
 from __future__ import annotations
 
@@ -32,6 +53,7 @@ from dataclasses import dataclass, field
 
 import numpy as np
 
+from .collision import keep_out_boxes
 from .krl import NOT_RUN, krl_name
 from .planner import Planner, tcp_poses
 from .rotations import matrix_to_abc
@@ -52,7 +74,46 @@ def corner_params(cfg, **overrides):
     if p["straight_speed_mm_s"] is None:
         p["straight_speed_mm_s"] = cfg.print_speed
     p["ratios"] = [float(r) for r in p["ratios"]]
+    if p["speed_mode"] not in ("krl", "pc"):
+        raise ValueError(f"hilbert_corner.speed_mode must be 'krl' or 'pc', not {p['speed_mode']!r}")
+    if p["speed_mode"] == "krl":
+        d = float(p["d_zone_mm"])
+        if d < 2.0 * float(p["c_dis_mm"]):
+            raise ValueError(f"hilbert_corner.d_zone_mm = {d:g} mm must be >= 2 x c_dis_mm "
+                             f"(= {2 * float(p['c_dis_mm']):g} mm) so the corner blend fits inside the zone")
+        p["zone_before_mm"] = p["zone_after_mm"] = d
+        p["latency_s"] = 0.0
+    else:
+        p["zone_before_mm"] = float(p["window_before_mm"])
+        p["zone_after_mm"] = float(p["window_after_mm"])
+        p["latency_s"] = float(p["pc_latency_s"])
+    lz = {"z0": None, "kx": 0.0, "ky": 0.0, "x0": None, "y0": None} | dict(p.get("layer_z") or {})
+    p["layer_z"] = lz
     return p
+
+
+def _zones(p):
+    """(before, after) corner zone lengths: the effective zones if set, else the PC override windows."""
+    if "zone_before_mm" in p:
+        return float(p["zone_before_mm"]), float(p["zone_after_mm"])
+    return float(p["window_before_mm"]), float(p["window_after_mm"])
+
+
+def layer_z_law(p, cfg, center):
+    """(z0, kx, ky, x0, y0) of z(x, y) = z0 + kx (x - x0) + ky (y - y0); defaults: flat at
+    bed top_z + layer height, reference point = centre of the square."""
+    lz = p["layer_z"]
+    z0 = cfg.bed()["top_z"] + cfg.layer_height if lz["z0"] is None else float(lz["z0"])
+    x0 = center[0] if lz["x0"] is None else float(lz["x0"])
+    y0 = center[1] if lz["y0"] is None else float(lz["y0"])
+    return z0, float(lz["kx"]), float(lz["ky"]), x0, y0
+
+
+def apply_layer_z(points, law):
+    z0, kx, ky, x0, y0 = law
+    out = np.array(points, float)
+    out[:, 2] = z0 + kx * (out[:, 0] - x0) + ky * (out[:, 1] - y0)
+    return out
 
 
 # ------------------------------------------------------------------ geometry
@@ -126,6 +187,24 @@ def reach_map(planner, cfg, z, grid_mm):
     return xs, ys, feas.reshape(X.shape)
 
 
+def box_xy_distance(X, Y, boxes):
+    """XY distance of the points (X, Y) (arrays of one shape) to the nearest box footprint (inf if none)."""
+    X, Y = np.asarray(X, float), np.asarray(Y, float)
+    d = np.full(X.shape, np.inf)
+    for b in boxes:
+        dx = np.maximum(np.maximum(b.lo[0] - X, X - b.hi[0]), 0.0)
+        dy = np.maximum(np.maximum(b.lo[1] - Y, Y - b.hi[1]), 0.0)
+        d = np.minimum(d, np.hypot(dx, dy))
+    return d
+
+
+def _signed_box_distance(P, lo, hi):
+    """Signed distance of points (N,3) to an AABB: > 0 outside, < 0 inside (depth)."""
+    d = np.maximum(lo - P, P - hi)
+    out = np.linalg.norm(np.maximum(d, 0.0), axis=1)
+    return np.where((d <= 0).all(1), d.max(1), out)
+
+
 def fit_square(xs, ys, feas, margin_mm, round_mm=10.0, prefer_xy=None):
     """Largest axis-aligned square of feasible grid points, at least margin_mm away
     from every infeasible point and from the grid border. Ties: closest to prefer_xy."""
@@ -160,7 +239,7 @@ def corner_windows(seg, kinds, p):
     seg[j] is the length from waypoint j to j+1; kinds[j] is 'start', 'corner'
     or 'end'. The straight part of a segment is its length minus the override
     windows at both ends (start / end points have no window)."""
-    wb, wa = float(p["window_before_mm"]), float(p["window_after_mm"])
+    wb, wa = _zones(p)
     after = np.array([wa if k == "corner" else 0.0 for k in kinds])
     before = np.array([wb if k == "corner" else 0.0 for k in kinds])
     straight = seg - after[:-1] - before[1:]
@@ -170,7 +249,7 @@ def corner_windows(seg, kinds, p):
 
 
 def too_close(straight_in, straight_out, kinds, min_straight):
-    """Corners whose straight before or after (between override windows) is shorter than min_straight."""
+    """Corners whose straight before or after (between corner zones) is shorter than min_straight."""
     is_c = np.array([k == "corner" for k in kinds])
     return is_c & ((np.nan_to_num(straight_in, nan=np.inf) < min_straight) |
                    (np.nan_to_num(straight_out, nan=np.inf) < min_straight))
@@ -300,6 +379,8 @@ class CornerTest:
     checks: list = field(default_factory=list)
     reach: tuple = None         # (xs, ys, feas) when the square was fitted
     plan: object = None
+    z_law: tuple = None         # (z0, kx, ky, x0, y0)
+    approach_q: np.ndarray = None   # joint target (rad) of the approach PTP, from IK with the hard limits
 
     @property
     def corner_ids(self):
@@ -310,64 +391,131 @@ class CornerTest:
         return all(c["ok"] for c in self.checks if c["severity"] == "error")
 
     @property
+    def mode(self):
+        return self.params["speed_mode"]
+
+    @property
     def v_program(self):
+        """$VEL.CP (mm/s) on the straights at 100 % override."""
+        if self.mode == "krl":
+            return self.params["straight_speed_mm_s"]
         return self.params["straight_speed_mm_s"] * 100.0 / self.params["straight_override_pct"]
+
+    @property
+    def v_corner_cmd(self):
+        """Commanded corner speed (mm/s) at the straight override (krl: the corner $VEL.CP)."""
+        return self.params["straight_speed_mm_s"] * self.r_eff
+
+
+def validate_geometry(W, seg, kinds, p, d_eff_cap=None):
+    """Guards (fail loudly): every waypoint segment >= 2 x C_DIS, corner zones disjoint, every
+    LIN of the export longer than min_lin_mm. Raises ValueError with the offending segments."""
+    c2 = 2.0 * float(p["c_dis_mm"])
+    min_lin = float(p["min_lin_mm"])
+    errs = []
+    bad = np.nonzero(seg < c2 - 1e-9)[0]
+    if len(bad):
+        errs.append(f"segment(s) {bad.tolist()} shorter than 2 x C_DIS = {c2:g} mm (min {seg.min():.2f} mm)")
+    wb, wa = _zones(p)
+    after = np.array([wa if k == "corner" else 0.0 for k in kinds])
+    before = np.array([wb if k == "corner" else 0.0 for k in kinds])
+    straight = seg - after[:-1] - before[1:]
+    bad = np.nonzero(straight <= 0)[0]
+    if len(bad):
+        errs.append(f"corner zones overlap on segment(s) {bad.tolist()} ({wb:g} mm before + {wa:g} mm after "
+                    f"the vertices > segment length, min {seg.min():.2f} mm)")
+    if p["speed_mode"] == "krl":
+        # LINs: the straight between zones and the two zone halves of every corner
+        lins = np.r_[straight, before[before > 0], after[after > 0]]
+    else:
+        lins = seg
+    if len(lins) and lins.min() <= min_lin:
+        errs.append(f"a LIN would be {lins.min():.2f} mm long (must be > {min_lin:g} mm)")
+    if float(p["approach_lift_mm"]) <= min_lin:
+        errs.append(f"approach_lift_mm {p['approach_lift_mm']:g} must be > {min_lin:g} mm")
+    if errs:
+        raise ValueError("Hilbert corner test geometry rejected: " + "; ".join(errs)
+                         + ". Use a larger side, a lower order, a smaller C_DIS or smaller corner zones.")
+    return straight
 
 
 def generate(cfg, robot, **overrides):
     """Build the corner test and run every check. Keyword arguments override
-    entries of the hilbert_corner section (see config/planner.yaml)."""
+    entries of the hilbert_corner section (see config/planner.yaml).
+    Raises ValueError for a geometry the export cannot represent (validate_geometry)."""
     p = corner_params(cfg, **overrides)
     bed = cfg.bed()
-    z = bed["top_z"] + cfg.layer_height
     pl = single_angle_planner(robot, cfg, p["theta_deg"])
     reach = None
     side, center = p["side_mm"], p["center_xy"]
     if side is None or center is None:
-        reach = reach_map(pl, cfg, z, float(p["fit_grid_mm"]))
+        z_fit = layer_z_law(p, cfg, (0.0, 0.0))[0]
+        xs, ys, feas = reach_map(pl, cfg, z_fit, float(p["fit_grid_mm"]))
+        # keep a clear margin from the clamp boxes (and any keep-out) in cell.yaml
+        feas = feas & (box_xy_distance(*np.meshgrid(xs, ys), pl.coll.boxes[1:]) >= float(p["clamp_margin_mm"]))
+        reach = (xs, ys, feas)
         fs, fc = fit_square(*reach, float(p["fit_margin_mm"]))
+        if p["max_side_mm"] is not None:
+            fs = min(fs, float(p["max_side_mm"]))
         side = fs if side is None else float(side)
         center = fc if center is None else tuple(center)
     side, center = float(side), (float(center[0]), float(center[1]))
+    if side <= 0:
+        raise ValueError(f"Hilbert corner test: side {side:g} mm must be > 0")
+    law = layer_z_law(p, cfg, center)
 
-    pts = hilbert_path(int(p["order"]), side, center, z)
+    pts = apply_layer_z(hilbert_path(int(p["order"]), side, center, law[0]), law)
     cidx, turns = find_corners(pts)
     vi = np.r_[0, cidx, len(pts) - 1]
     W = pts[vi]
     kinds = ["start"] + ["corner"] * len(cidx) + ["end"]
     turn = np.r_[0, turns, 0]
     seg = np.linalg.norm(np.diff(W, axis=0), axis=1)
+    validate_geometry(W, seg, kinds, p)
     s_in, s_out = corner_windows(seg, kinds, p)
     is_c = np.array([k == "corner" for k in kinds])
     excluded = too_close(s_in, s_out, kinds, float(p["min_straight_mm"]))
     r_c = assign_ratios(int(is_c.sum()), ~excluded[is_c], p["ratios"], int(p["min_repeats"]), p["seed"])
     r_cmd = np.ones(len(W))
     r_cmd[is_c] = r_c
-    ov_s = float(p["straight_override_pct"])
-    ov_c = np.where(is_c, np.round(r_cmd * ov_s), ov_s)
-    r_eff = ov_c / ov_s
+    v_s = float(p["straight_speed_mm_s"])
+    if p["speed_mode"] == "krl":
+        # $VEL.CP is written with 0.01 mm/s resolution; the override stays at 100 %
+        ov_s = 100.0
+        r_eff = np.where(is_c, np.round(v_s * r_cmd / 1000.0, 5) * 1000.0 / v_s, 1.0)
+        ov_c = 100.0 * r_eff                                   # equivalent override (model only)
+    else:
+        ov_s = float(p["straight_override_pct"])
+        ov_c = np.where(is_c, np.round(r_cmd * ov_s), ov_s)
+        r_eff = ov_c / ov_s
+    zb, za = _zones(p)
 
-    # effective blend: KRC limits the approximation distance to half the shorter segment
+    # effective blend: KRC limits the approximation distance to half the shorter programmed segment
+    # (krl mode: the corner sub-segments are d_zone long)
     d_eff = np.zeros(len(W))
-    d_eff[1:-1] = np.minimum(float(p["c_dis_mm"]), 0.5 * np.minimum(seg[:-1], seg[1:]))
+    adj = np.minimum(seg[:-1], seg[1:]) if p["speed_mode"] == "pc" else np.full(len(W) - 2, min(zb, za))
+    d_eff[1:-1] = np.minimum(float(p["c_dis_mm"]), 0.5 * adj)
     r_blend = np.where(is_c, d_eff / np.sqrt(2.0), np.inf)   # 90 deg corner; exact value from the dense R below
 
     P, s_prog, R, vert, s_w = blended_path(W, d_eff, float(p["ds_mm"]))
     s_path = np.r_[0.0, np.cumsum(np.linalg.norm(np.diff(P, axis=0), axis=1))]
-    v_prog = p["straight_speed_mm_s"] * 100.0 / ov_s
-    lat = float(p["pc_latency_s"])
-    v_s = p["straight_speed_mm_s"]
+    v_prog = v_s * 100.0 / ov_s
+    lat = float(p["latency_s"])
     ov = np.full(len(s_prog), ov_s)
     windows = np.full((len(W), 2), np.nan)
     for j in np.nonzero(is_c)[0]:
-        a = s_w[j] - p["window_before_mm"]
-        b = s_w[j] + p["window_after_mm"]
+        a = s_w[j] - zb
+        b = s_w[j] + za
         windows[j] = (a, b)
-        # the new override takes effect pc_latency later (distance at the speed before the switch)
+        # pc mode: the new override takes effect pc_latency later (distance at the speed before the switch)
         a_eff = a + lat * v_s
         b_eff = b + lat * v_prog * ov_c[j] / 100.0
         ov[(s_prog >= a_eff) & (s_prog < b_eff)] = ov_c[j]
     v_cmd = v_prog * ov / 100.0
+    dip = float(p["corner_dip_factor"])
+    if not 0 < dip <= 1.5:
+        raise ValueError(f"hilbert_corner.corner_dip_factor {dip:g} must be in (0, 1.5]")
+    v_cmd = np.where(vert >= 0, v_cmd * dip, v_cmd)
     v_lat = np.sqrt(float(p["lateral_acc_mm_s2"]) * R)
     v = speed_profile(s_path, np.minimum(v_cmd, v_lat), float(p["path_acc_mm_s2"]))
     t = time_along(s_path, v)
@@ -378,19 +526,23 @@ def generate(cfg, robot, **overrides):
         k = int(np.argmin(np.abs(s_prog - s_w[j])))
         v_corner[j] = v[k]
         if j > 0:
-            a = s_w[j - 1] + (p["window_after_mm"] if kinds[j - 1] == "corner" else 0.0)
-            b = s_w[j] - (p["window_before_mm"] if kinds[j] == "corner" else 0.0)
+            a = s_w[j - 1] + (za if kinds[j - 1] == "corner" else 0.0)
+            b = s_w[j] - (zb if kinds[j] == "corner" else 0.0)
             km = int(np.argmin(np.abs(s_prog - 0.5 * (a + b))))
             v_str[j] = v[km]
         if is_c[j]:
             r_blend[j] = float(R[vert == j].min()) if (vert == j).any() else np.inf
-    ratio_pred = np.where(is_c, v_corner / v_str, np.nan)
+    if np.any(v_str[is_c] <= 1e-9):
+        bad = (np.nonzero(is_c & (v_str <= 1e-9))[0] - 1).tolist()
+        raise ValueError(f"Hilbert corner test: zero model speed on the straight before corner(s) {bad}; "
+                         "the straights are too short for the speed profile")
+    ratio_pred = np.where(is_c, v_corner / np.where(is_c, v_str, 1.0), np.nan)
 
-    ct = CornerTest(p, side, center, z, pts, W, kinds, vi, turn, seg, s_w, s_in, s_out, excluded,
+    ct = CornerTest(p, side, center, law[0], pts, W, kinds, vi, turn, seg, s_w, s_in, s_out, excluded,
                     r_cmd, ov_c, r_eff, d_eff, r_blend, v_corner, v_str, ratio_pred, windows,
                     dense={"P": P, "s_prog": s_prog, "s_path": s_path, "R": R, "v": v, "v_cmd": v_cmd,
                            "t": t, "vert": vert},
-                    reach=reach)
+                    reach=reach, z_law=law)
     run_checks(ct, cfg, robot, pl)
     return ct
 
@@ -433,7 +585,7 @@ def run_checks(ct, cfg, robot, pl):
                              sh >= p["min_shoulder_mm"], f"{sh:.0f} mm", f">= {p['min_shoulder_mm']} mm"))
         clr, det = pl.coll.clearance(q, return_detail=True)
         worst = min(det, key=lambda k: det[k].min())
-        checks.append(_check("collision: min clearance to bed (with gap) / clamps / floor",
+        checks.append(_check("collision: min clearance to bed (with gap) / clamps / floor (cell.yaml)",
                              clr.min() >= 0, f"{clr.min():.1f} mm ({worst})", ">= 0 mm"))
         # joint speed at the highest commanded TCP speed anywhere on the path
         v_hi = p["straight_speed_mm_s"] * max(1.0, ct.r_eff.max())
@@ -441,6 +593,17 @@ def run_checks(ct, cfg, robot, pl):
         frac = float(np.nanmax(dq / (robot.vmax * pl.p["velocity_scale"])))
         checks.append(_check(f"joint speed at {v_hi:.0f} mm/s everywhere (fraction of URDF velocity)",
                              frac <= 1.0, f"{frac:.3f}", "<= 1 (URDF velocities unverified)"))
+    # keep-out zones: the robot / tool on the planned states and the nozzle path itself (points
+    # inside a zone have no feasible state, so the path is checked directly as well)
+    ko = keep_out_boxes(cfg)
+    kmin = np.inf
+    for b in ko:
+        kmin = min(kmin, float(_signed_box_distance(P, b.lo, b.hi).min()) - b.required_clearance)
+        if len(q):
+            kmin = min(kmin, float(det[b.name].min()))
+    checks.append(_check("keep-out zones from cell.yaml keep_out (site keep-outs: check locally)",
+                         kmin >= 0, f"{len(ko)} zone(s)" + (f", min clearance {kmin:.1f} mm" if ko else
+                                                             " defined (none committed)"), ">= 0 mm"))
     bed = cfg.bed()
     m = float(p["bed_edge_margin_mm"])
     inside = (P[:, 0] >= bed["x"][0] + m) & (P[:, 0] <= bed["x"][1] - m) & \
@@ -455,17 +618,27 @@ def run_checks(ct, cfg, robot, pl):
                          gap_hi >= p["min_nozzle_bed_mm"],
                          f"{gap_hi:.2f} mm ({gap_nom:.2f} mm vs top_z {bed['top_z']})",
                          f">= {p['min_nozzle_bed_mm']} mm vs z {p['bed_top_max_z']}"))
-    # approach / retract points
+    cm = float(p["clamp_margin_mm"])
+    dxy = float(box_xy_distance(P[:, 0], P[:, 1], pl.coll.boxes[1:]).min())
+    checks.append(_check("XY margin of the path to the clamp boxes (inflated, cell.yaml)", dxy >= cm,
+                         f"{dxy:.1f} mm", f">= {cm:g} mm"))
+    # approach / retract points: IK with the hard limits (margin), collision-free, the slot
+    # closest to the planned start (the approach PTP target) and to the planned end
     lift = np.array([0, 0, float(p["approach_lift_mm"])])
     ends = np.array([ct.W[0] + lift, ct.W[-1] + lift])
     T = tcp_poses(ends, np.tile([0, 0, -1.0], (2, 1)), pl.thetas).reshape(-1, 4, 4)
     Q, okk = robot.ik(T, limits=pl.hard_limits)
     end_ok = []
+    ref = [res.q[0], res.q[-1]]
     for i in range(2):
         k = np.nonzero(okk[i])[0]
-        end_ok.append(bool(len(k)) and bool((pl.coll.clearance(Q[i, k]) >= 0).any()))
-    checks.append(_check("lifted start / end poses feasible (the PTP approach itself is not checked)",
-                         all(end_ok), f"start {end_ok[0]}, end {end_ok[1]}", "both"))
+        if len(k):
+            k = k[pl.coll.clearance(Q[i, k]) >= 0]
+        end_ok.append(bool(len(k)))
+        if i == 0 and len(k) and not np.isnan(ref[0][0]):
+            ct.approach_q = Q[0, k[np.argmin(np.abs(Q[0, k] - ref[0]).max(1))]]
+    checks.append(_check("lifted start / end poses feasible with the hard limits (the PTP from the current "
+                         "pose is not checked)", all(end_ok), f"start {end_ok[0]}, end {end_ok[1]}", "both"))
     # speeds
     v_s = p["straight_speed_mm_s"]
     v_cmax = v_s * float(ct.r_eff.max())
@@ -474,19 +647,24 @@ def run_checks(ct, cfg, robot, pl):
                          max(v_s, v_cmax, ct.v_program) <= vmax_lim,
                          f"{v_s:.1f} / {v_cmax:.1f} / {ct.v_program:.1f} mm/s", f"<= {vmax_lim:g} mm/s"))
     is_c = np.array([k == "corner" for k in ct.kinds])
-    ovr = ct.ov_corner[is_c]
-    checks.append(_check("corner override inside 1..100 %", ((ovr >= 1) & (ovr <= 100)).all(),
-                         f"{ovr.min():.0f}..{ovr.max():.0f} %", "1..100 %"))
+    if ct.mode == "pc":
+        ovr = ct.ov_corner[is_c]
+        checks.append(_check("corner override inside 1..100 %", ((ovr >= 1) & (ovr <= 100)).all(),
+                             f"{ovr.min():.0f}..{ovr.max():.0f} %", "1..100 %"))
+    else:
+        vc = ct.v_corner_cmd[is_c]
+        checks.append(_check("corner $VEL.CP inside 0.1 mm/s .. max TCP speed", ((vc >= 0.1) & (vc <= vmax_lim)).all(),
+                             f"{vc.min():.2f}..{vc.max():.2f} mm/s", f"0.1..{vmax_lim:g} mm/s"))
     used = ct.r_cmd[is_c & ~ct.excluded]
     counts = {r: int(np.isclose(used, r).sum()) for r in p["ratios"]}
     checks.append(_check("schedule: every ratio used at least min_repeats times",
                          min(counts.values()) >= p["min_repeats"],
                          ", ".join(f"{r:g}: {n}" for r, n in counts.items()), f">= {p['min_repeats']} each"))
     qerr = np.abs(ct.r_eff - ct.r_cmd)[is_c]
-    checks.append(_check("override quantisation (integer %) error of r", qerr.max() <= 0.01,
+    checks.append(_check("quantisation error of r (pc: integer $OV_PRO %; krl: $VEL.CP 0.01 mm/s)", qerr.max() <= 0.01,
                          f"max {qerr.max():.3f}", "<= 0.01", severity="warning"))
     ex = np.nonzero(ct.excluded)[0]
-    checks.append(_check(f"min straight between override windows ({p['min_straight_mm']:g} mm)", len(ex) == 0,
+    checks.append(_check(f"min straight between corner zones ({p['min_straight_mm']:g} mm)", len(ex) == 0,
                          f"min {np.nanmin(np.r_[ct.straight_in, ct.straight_out]):.1f} mm, "
                          f"{len(ex)} corner(s) set to r = 1",
                          f">= {p['min_straight_mm']:g} mm",
@@ -528,7 +706,7 @@ def write_waypoints_csv(path, ct, robot):
            "A1", "A2", "A3", "A4", "A5", "A6", "turn", "s_prog_mm", "seg_in_mm", "seg_out_mm",
            "straight_in_mm", "straight_out_mm", "excluded_min_straight", "ratio_cmd", "override_pct",
            "ratio_quantised", "blend_half_mm", "blend_min_radius_mm", "model_v_straight_mm_s",
-           "model_v_corner_mm_s", "model_ratio", "model_width_rel"]
+           "model_v_corner_mm_s", "model_ratio", "model_only_width_rel"]
     cid = ct.corner_ids
     with open(path, "w", newline="") as fh:
         w = csv.writer(fh)
@@ -551,15 +729,20 @@ def write_waypoints_csv(path, ct, robot):
 
 
 def write_schedule_csv(path, ct):
-    """One row per corner for a PC-side override controller: switch to override_corner_pct
-    when the TCP passes the window start, back to override_straight_pct at the window end."""
+    """One row per corner. pc mode: for a PC-side override controller (not in this repository):
+    switch to override_corner_pct when the TCP passes the window start, back to
+    override_straight_pct at the window end. krl mode: the zones and corner $VEL.CP that the
+    program itself sets (override 100 %); for reference and for reading the logs."""
     import csv
     s_prog, t = ct.dense["s_prog"], ct.dense["t"]
-    ov_s = ct.params["straight_override_pct"]
+    pc = ct.mode == "pc"
+    ov_s = ct.params["straight_override_pct"] if pc else 100
+    zb, za = _zones(ct.params)
     with open(path, "w", newline="") as fh:
         w = csv.writer(fh)
         w.writerow(["corner_id", "wp", "x", "y", "turn", "dir_in", "dir_out", "ratio_cmd", "excluded",
-                    "override_straight_pct", "override_corner_pct", "s_vertex_mm", "s_window_start_mm",
+                    "speed_mode", "override_straight_pct", "override_corner_pct", "vel_cp_straight_mm_s",
+                    "vel_cp_corner_mm_s", "s_vertex_mm", "s_window_start_mm",
                     "s_window_end_mm", "window_start_x", "window_start_y", "window_end_x", "window_end_y",
                     "model_t_window_start_s", "model_t_vertex_s", "model_t_window_end_s", "model_ratio"])
         for j, k in enumerate(ct.kinds):
@@ -567,13 +750,15 @@ def write_schedule_csv(path, ct):
                 continue
             uin = (ct.W[j] - ct.W[j - 1]) / ct.seg[j - 1]
             uout = (ct.W[j + 1] - ct.W[j]) / ct.seg[j]
-            a = ct.W[j] - ct.params["window_before_mm"] * uin
-            b = ct.W[j] + ct.params["window_after_mm"] * uout
+            a = ct.W[j] - zb * uin
+            b = ct.W[j] + za * uout
             ts = [float(np.interp(x, s_prog, t)) for x in (ct.windows[j, 0], ct.s_w[j], ct.windows[j, 1])]
             dname = lambda u: DIRS4.get(tuple(np.round(u[:2]).astype(int)), "")
             w.writerow([j - 1, j, f"{ct.W[j, 0]:.3f}", f"{ct.W[j, 1]:.3f}", {1: "L", -1: "R"}[int(ct.turn[j])],
-                        dname(uin), dname(uout), f"{ct.r_cmd[j]:.3f}", int(ct.excluded[j]), f"{ov_s:.0f}",
-                        f"{ct.ov_corner[j]:.0f}", f"{ct.s_w[j]:.2f}", f"{ct.windows[j, 0]:.2f}",
+                        dname(uin), dname(uout), f"{ct.r_cmd[j]:.3f}", int(ct.excluded[j]), ct.mode, f"{ov_s:.0f}",
+                        f"{ct.ov_corner[j] if pc else 100:.0f}", f"{ct.v_program:.2f}",
+                        f"{ct.v_program if pc else ct.v_corner_cmd[j]:.2f}",
+                        f"{ct.s_w[j]:.2f}", f"{ct.windows[j, 0]:.2f}",
                         f"{ct.windows[j, 1]:.2f}", f"{a[0]:.3f}", f"{a[1]:.3f}", f"{b[0]:.3f}", f"{b[1]:.3f}",
                         *[f"{v:.3f}" for v in ts], f"{ct.ratio_pred[j]:.4f}"])
 
@@ -590,26 +775,57 @@ def write_speed_csv(path, ct, step=5):
                         f"{d['P'][i, 1]:.3f}", f"{d['t'][i]:.3f}", f"{d['v_cmd'][i]:.3f}", f"{d['v'][i]:.3f}"])
 
 
+CHECKED_SCOPE = "checked against cell.yaml only; site keep-outs must be checked locally before running"
+CONTROLLER_DEFAULTS = ("; Assumes the controller's INI / BAS(#INITMOV,0) defaults for everything not set here "
+                       "($ACC.CP, $VEL.ORI, $ACC.ORI, ...); $APO.CDIS is set explicitly.")
+
+
+def _vel(v_mm_s):
+    return f"  $VEL.CP = {v_mm_s / 1000.0:.5f}"
+
+
 def write_krl(path, ct, robot, cfg, name="hilbert_corner"):
-    """KRL export: one LIN per waypoint (no densification, so C_DIS acts at the corners)."""
+    """KRL export: one LIN per waypoint (no densification, so C_DIS acts at the corners);
+    in krl speed mode every corner leg is split at +-d_zone and the corner sub-segments get
+    $VEL.CP = r x v. Written with LF line endings on every platform."""
     p = ct.params
     rows = _abc_rows(ct, robot)
     tool = cfg.tool_xyzabc
     lift = float(p["approach_lift_mm"])
+    z0, kx, ky, x0, y0 = ct.z_law
+    zr = (ct.W[:, 2].min(), ct.W[:, 2].max())
+    zdesc = f"layer Z {z0:.3f}" if kx == 0 and ky == 0 else \
+        f"layer Z = {z0:.3f} + {kx:g} (X - {x0:.1f}) + {ky:g} (Y - {y0:.1f}) ({zr[0]:.3f}..{zr[1]:.3f})"
+    v_s = float(p["straight_speed_mm_s"])
     lines = [
         NOT_RUN,
         "; This file was produced by kuka-sim (Hilbert corner test) and has never been run.",
         "; Do not load it on a controller without a separate review and a dry run.",
         f"; Hilbert order {p['order']}, side {ct.side:g} mm, centre ({ct.center[0]:.1f}, {ct.center[1]:.1f}), "
-        f"layer Z {ct.z:.3f}, {sum(k == 'corner' for k in ct.kinds)} corners",
+        f"{zdesc}, {sum(k == 'corner' for k in ct.kinds)} corners",
         f"; TOOL 3 assumed = {{X {tool[0]}, Y {tool[1]}, Z {tool[2]}, A {tool[3]}, B {tool[4]}, C {tool[5]}}}"
         " (copied, to be re-confirmed); BASE 0",
-        f"; Speed: $VEL.CP = {ct.v_program:.1f} mm/s at 100 % override; straights at $OV_PRO "
-        f"{p['straight_override_pct']:g} % = {p['straight_speed_mm_s']:g} mm/s.",
-        "; The corner overrides are NOT set here: a PC-side controller switches $OV_PRO per schedule.csv.",
+    ]
+    if ct.mode == "krl":
+        lines += [
+            f"; Speed (krl mode): $VEL.CP = {v_s:g} mm/s on the straights; each corner leg is split at "
+            f"+-{p['d_zone_mm']:g} mm",
+            ";   around the vertex and the two corner sub-segments run at $VEL.CP = r x v (set in this program,",
+            ";   path-synchronous). Speeds assume $OV_PRO 100 %; the ratios hold at any constant override.",
+        ]
+    else:
+        lines += [
+            f"; Speed (pc mode): $VEL.CP = {ct.v_program:.1f} mm/s at 100 % override; straights at $OV_PRO "
+            f"{p['straight_override_pct']:g} % = {v_s:g} mm/s.",
+            "; The corner overrides are NOT set here: a PC-side schedule follower (NOT provided in this",
+            ";   repository) must switch $OV_PRO per schedule.csv.",
+        ]
+    lines += [
         f"; C_DIS {p['c_dis_mm']:g} mm; KRC limits it to half the shorter adjacent segment.",
-        "; The approach to the first PTP and the PTP motion itself are not planned or collision-checked.",
-        f"; Checks: {'all passed' if ct.ok else 'FAILED - see report.md'}",
+        CONTROLLER_DEFAULTS,
+        f"; Approach: PTP to {lift:g} mm above the start at $VEL_AXIS {p['approach_vel_axis_pct']:g} % / "
+        f"$ACC_AXIS {p['approach_acc_axis_pct']:g} %; the PTP from the current pose is NOT checked.",
+        f"; Checks: {'passed' if ct.ok else 'FAILED - see report.md'} ({CHECKED_SCOPE})",
     ]
     if not ct.ok:
         lines.append("; CHECKS FAILED: this program is outside the simulated safe envelope.")
@@ -617,37 +833,42 @@ def write_krl(path, ct, robot, cfg, name="hilbert_corner"):
         f"DEF {krl_name(name)}()",
         "  $BASE = $NULLFRAME",
         "  $TOOL = TOOL_DATA[3]",
-        f"  $VEL.CP = {ct.v_program / 1000.0:.4f}",
+        _vel(ct.v_program),
         f"  $APO.CDIS = {p['c_dis_mm']:g}",
         "  $ORI_TYPE = #CONSTANT",
     ]
-    T = tcp_poses((ct.W[0] + [0, 0, lift])[None], np.array([[0, 0, -1.0]]),
-                  np.radians([p["theta_deg"]])).reshape(-1, 4, 4)
-    Q, okk = robot.ik(T)
-    q0 = rows[0][0]
-    k = np.nonzero(okk[0])[0]
-    if len(k) and q0 is not None:
-        qd = np.degrees(Q[0, k])
-        qa = qd[np.argmin(np.abs(qd - q0).max(1))]
-        lines.append("  PTP {A1 %.4f, A2 %.4f, A3 %.4f, A4 %.4f, A5 %.4f, A6 %.4f}" % tuple(qa)
-                     + f"  ; {lift:g} mm above the start")
+    lines += [f"  $VEL_AXIS[{i}] = {p['approach_vel_axis_pct']:g}" for i in range(1, 7)]
+    lines += [f"  $ACC_AXIS[{i}] = {p['approach_acc_axis_pct']:g}" for i in range(1, 7)]
     fmt = "  LIN {X %.3f, Y %.3f, Z %.3f, A %.4f, B %.4f, C %.4f}"
-    if not (len(k) and q0 is not None):
-        lines.append("  ; no IK solution for the lifted start pose: approach PTP omitted")
+    if ct.approach_q is not None:
+        lines.append("  PTP {A1 %.4f, A2 %.4f, A3 %.4f, A4 %.4f, A5 %.4f, A6 %.4f}" % tuple(np.degrees(ct.approach_q))
+                     + f"  ; {lift:g} mm above the start (from the current pose: NOT checked)")
+    else:
+        lines.append("  ; no IK solution within the hard limits for the lifted start pose: approach PTP omitted")
         lines.append(fmt % (*(ct.W[0] + [0, 0, lift]), *rows[0][1]))
     cid = ct.corner_ids
     for j in range(len(ct.W)):
         abc = rows[j][1]
-        if ct.kinds[j] == "corner":
-            note = f"  ; corner {cid[j]}: r {ct.r_cmd[j]:g}, OV {ct.ov_corner[j]:.0f} %"
-            if ct.excluded[j]:
-                note += " (too close to a neighbour, r = 1)"
-            lines.append(fmt % (*ct.W[j], *abc) + " C_DIS" + note)
-        else:
+        if ct.kinds[j] != "corner":
             lines.append(fmt % (*ct.W[j], *abc) + f"  ; {ct.kinds[j]} (exact stop)")
+            continue
+        note = f"  ; corner {cid[j]}: r {ct.r_cmd[j]:g}"
+        if ct.excluded[j]:
+            note += " (too close to a neighbour, r = 1)"
+        if ct.mode == "pc":
+            lines.append(fmt % (*ct.W[j], *abc) + " C_DIS" + note + f", OV {ct.ov_corner[j]:.0f} %")
+            continue
+        uin = (ct.W[j] - ct.W[j - 1]) / ct.seg[j - 1]
+        uout = (ct.W[j + 1] - ct.W[j]) / ct.seg[j]
+        d = float(p["d_zone_mm"])
+        lines.append(fmt % (*(ct.W[j] - d * uin), *abc) + f" C_DIS  ; zone start corner {cid[j]}")
+        lines.append(_vel(ct.v_corner_cmd[j]))
+        lines.append(fmt % (*ct.W[j], *abc) + " C_DIS" + note + f", v {ct.v_corner_cmd[j]:.2f} mm/s")
+        lines.append(fmt % (*(ct.W[j] + d * uout), *abc) + f" C_DIS  ; zone end corner {cid[j]}")
+        lines.append(_vel(v_s))
     lines.append(fmt % (*(ct.W[-1] + [0, 0, lift]), *rows[-1][1]))
     lines.append("END")
-    with open(path, "w") as fh:
+    with open(path, "w", newline="\n") as fh:          # LF on every platform (K-2)
         fh.write("\n".join(lines) + "\n")
 
 
@@ -753,29 +974,47 @@ def write_report(path, ct, cfg, files):
     L.append("Generated by `python scripts/run_hilbert_corner.py`. Nothing here was run on the robot; the KRL "
              "file carries the NOT RUN header. Every speed below is a **model estimate** unless it is a "
              "commanded value.\n")
+    L.append(f"**Scope of the checks:** {CHECKED_SCOPE}. The obstacles are the clamp estimates and the optional "
+             "`keep_out` list in `config/cell.yaml` (empty in the repository).\n")
     L.append("## Layout\n")
     L.append(f"- Hilbert curve order {p['order']}: {len(ct.points)} vertices, grid step {step:.2f} mm, "
              f"side {ct.side:g} mm, centre ({ct.center[0]:.1f}, {ct.center[1]:.1f}) mm in BASE 0.")
+    cap = f", capped at {p['max_side_mm']:g} mm" if p.get("max_side_mm") is not None else ""
     fitted = "fitted: largest square (rounded down to 10 mm) whose points are all reachable and collision-free " \
              f"with the vertical nozzle, at least {p['fit_margin_mm']:g} mm from any infeasible point and the " \
-             f"bed edge (map grid {p['fit_grid_mm']:g} mm)" if ct.reach is not None else "set by hand"
+             f"bed edge and at least {p['clamp_margin_mm']:g} mm (XY) from the inflated clamp boxes " \
+             f"(map grid {p['fit_grid_mm']:g} mm){cap}" if ct.reach is not None else "set by hand"
     L.append(f"- Side and centre: {fitted}. The unreachable +X/-Y bed corner and the clamp boxes are outside it.")
-    L.append(f"- Layer Z = bed top_z {cfg.bed()['top_z']} + layer height {cfg.layer_height} = {ct.z:.2f} mm; "
-             f"nozzle vertical, rotation {p['theta_deg']:g} deg about it (A0 B90 C0 for 0), TOOL 3.")
+    z0, kx, ky, x0, y0 = ct.z_law
+    zsrc = f"bed top_z {cfg.bed()['top_z']} + layer height {cfg.layer_height}" if p["layer_z"]["z0"] is None \
+        else "set in layer_z"
+    L.append(f"- Layer Z: z(x, y) = z0 + kx (x - x0) + ky (y - y0) with z0 = {z0:.2f} mm ({zsrc}), kx = {kx:g}, "
+             f"ky = {ky:g}, (x0, y0) = ({x0:.1f}, {y0:.1f}); Z {ct.W[:, 2].min():.2f} .. {ct.W[:, 2].max():.2f} mm "
+             f"over the path. Nozzle vertical, rotation {p['theta_deg']:g} deg about it (A0 B90 C0 for 0), TOOL 3.")
     L.append(f"- Path length {ct.s_w[-1]:.0f} mm, {n_c} corners ({int((ct.turn == 1).sum())} left, "
              f"{int((ct.turn == -1).sum())} right turns); model print time {ct.dense['t'][-1]:.0f} s.\n")
-    L.append("## Override schedule\n")
-    L.append(f"- Straight: {p['straight_speed_mm_s']:g} mm/s at $OV_PRO {p['straight_override_pct']:g} % "
-             f"($VEL.CP = {ct.v_program:.1f} mm/s at 100 %). Extruder rpm fixed.")
-    L.append(f"- Corner: $OV_PRO = round(r x {p['straight_override_pct']:g}) %, from {p['window_before_mm']:g} mm "
-             f"before to {p['window_after_mm']:g} mm after the vertex (`schedule.csv`).")
+    L.append("## Corner speed schedule\n")
+    if ct.mode == "krl":
+        L.append(f"- Mode `krl` (default): set in the program itself, path-synchronous. Straight: $VEL.CP = "
+                 f"{p['straight_speed_mm_s']:g} mm/s. Every corner leg is split at +-{p['d_zone_mm']:g} mm around "
+                 f"the vertex (d_zone >= 2 x C_DIS = {2 * p['c_dis_mm']:g} mm) and the two corner sub-segments run at "
+                 "$VEL.CP = r x v, back to v after them. Speeds assume $OV_PRO 100 %; the ratios hold at any constant "
+                 "override. Extruder rpm fixed. `schedule.csv` lists the zones for reading the logs.")
+        L.append("- Mode `pc` (option, `speed_mode: pc`): one $VEL.CP and a PC-side controller switching $OV_PRO per "
+                 "`schedule.csv`. That needs a PC-side schedule follower, which this repository does not provide.")
+    else:
+        L.append(f"- Mode `pc`: straight {p['straight_speed_mm_s']:g} mm/s at $OV_PRO {p['straight_override_pct']:g} % "
+                 f"($VEL.CP = {ct.v_program:.1f} mm/s at 100 %). Extruder rpm fixed.")
+        L.append(f"- Corner: $OV_PRO = round(r x {p['straight_override_pct']:g}) %, from {p['window_before_mm']:g} mm "
+                 f"before to {p['window_after_mm']:g} mm after the vertex (`schedule.csv`). This needs a PC-side "
+                 "schedule follower, which this repository does NOT provide.")
     L.append(f"- Ratios {', '.join(f'{r:g}' for r in p['ratios'])}, each at least {p['min_repeats']}x, "
              f"seeded random order (seed {p['seed']}).")
-    L.append(f"- Minimum straight between override windows: {p['min_straight_mm']:g} mm. **Assumption:** the "
+    L.append(f"- Minimum straight between corner zones: {p['min_straight_mm']:g} mm. **Assumption:** the "
              "extruder flow responds within a few tenths of a second; at about 12 mm/s 0.3 s is about 4 mm, so "
              "15 mm (about 4 response times) keeps one corner's transient out of the next. Shorter -> r = 1.")
     s_all = np.r_[ct.straight_in[is_c], ct.straight_out[is_c]]
-    L.append(f"- Straight lengths between windows: {np.nanmin(s_all):.1f} .. {np.nanmax(s_all):.1f} mm; "
+    L.append(f"- Straight lengths between corner zones: {np.nanmin(s_all):.1f} .. {np.nanmax(s_all):.1f} mm; "
              f"vertex-to-vertex segments {ct.seg.min():.1f} .. {ct.seg.max():.1f} mm.")
     ex = [int(j) - 1 for j in np.nonzero(ct.excluded)[0]]
     L.append(f"- Corners set to r = 1 because a neighbour is too close: {', '.join(map(str, ex)) if ex else 'none'}.\n")
@@ -792,11 +1031,14 @@ def write_report(path, ct, cfg, files):
         L.append(f"| {c['name']} | {res} | {val} | {c['limit']} |")
     L.append("")
     L.append("## Corner-speed model (estimate)\n")
+    lat = (f"each override switch takes effect {p['pc_latency_s']:g} s late (assumed)" if ct.mode == "pc"
+           else "the corner $VEL.CP applies from the zone start (no PC latency)")
     L.append("Assumptions: the C_DIS blend is the quadratic Bezier through the vertex as control point, of half-"
              f"length d = min(C_DIS {p['c_dis_mm']:g} mm, half the shorter adjacent segment); speed follows "
              f"the commanded speed with a trapezoid profile at {p['path_acc_mm_s2']:g} mm/s^2 (assumed), is capped "
-             f"by sqrt(a_lat R) with a_lat {p['lateral_acc_mm_s2']:g} mm/s^2 (assumed); each override switch takes "
-             f"effect {p['pc_latency_s']:g} s late (assumed). None of these numbers was read from the controller.\n")
+             f"by sqrt(a_lat R) with a_lat {p['lateral_acc_mm_s2']:g} mm/s^2 (assumed); {lat}; inside each blend "
+             f"the commanded speed is scaled by the corner dip factor {p['corner_dip_factor']:g} (1.0 = no dip). "
+             "None of these numbers was read from the controller.\n")
     rp = ct.ratio_pred[is_c]
     d = np.abs(rp - ct.r_eff[is_c])
     L.append(f"- Blend half-length {ct.d_eff[is_c].min():g} mm, min radius {np.min(ct.r_blend[is_c]):.2f} mm; "
@@ -804,24 +1046,33 @@ def write_report(path, ct, cfg, files):
     L.append(f"- Predicted corner/straight ratio: {np.nanmin(rp):.3f} .. {np.nanmax(rp):.3f}; max deviation from "
              f"the commanded (quantised) ratio {d.max():.3f}. Per corner: `waypoints.csv` (`model_ratio`), "
              "speed profile: `speed_profile.csv`, `speed.png`.")
-    L.append("- Under these assumptions nothing limits the corner speed at the default settings, so the model "
-             "simply returns the commanded ratio. It does not know the KRC's own override ramp, its look-ahead "
-             "or any slow-down in approximate positioning; the logged speed decides.")
-    L.append("- Predicted corner bead width relative to the straight bead (flow / speed at fixed rpm, no flow "
-             "dynamics) = 1 / model ratio: "
-             f"{1 / np.nanmax(rp):.2f} .. {1 / np.nanmin(rp):.2f}.")
+    L.append(("- With the dip factor at 1.0 nothing limits the corner speed at the default settings, so the model "
+              "simply returns the commanded ratio. " if p["corner_dip_factor"] == 1.0 else
+              f"- The dip factor {p['corner_dip_factor']:g} is an assumption, not a measurement. ") +
+             "Real controllers do slow down below the programmed speed in "
+             "blended 90 deg corners; the model does not know by how much (`corner_dip_factor` is a placeholder), "
+             "nor the KRC's own ramps or look-ahead.")
+    L.append("- **The logged speed decides.** The corner speed and ratio actually reached come from the controller "
+             "log ($VEL_ACT or a trace), not from this model.")
+    L.append("- Predicted corner bead width relative to the straight bead (**model only**: flow / speed at fixed rpm, "
+             "no flow dynamics, no corner dip unless set) = 1 / model ratio: "
+             f"{1 / np.nanmax(rp):.2f} .. {1 / np.nanmin(rp):.2f} (`model_only_width_rel` in `waypoints.csv`).")
     L.append("- Sensitivity to C_DIS (model): highest corner ratio before the blend radius caps the speed: " +
              ", ".join(f"C_DIS {c:g} mm -> {r:.2f}" for c, r in cdis_sensitivity(ct)) + ".\n")
     L.append("## What the lab still has to measure\n")
     L.append("- The real TCP speed through each corner ($VEL_ACT or the trace at the controller's IPO rate) "
              "against `model_ratio`; the real ramp / blend behaviour replaces the assumed accelerations.")
-    L.append("- The real delay from the PC's override command to the speed change (`pc_latency_s`).")
+    if ct.mode == "pc":
+        L.append("- The real delay from the PC's override command to the speed change (`pc_latency_s`).")
     L.append("- The extruder flow response time behind the 15 mm minimum straight.")
     L.append("- Corner bead width per corner id (and straight bead width next to it) to get width vs r.")
     L.append("- TOOL 3 re-confirmation, the bed top over the square (top_z varies 0.95 .. 1.38 mm) and the "
-             "clamp positions (photo estimates) before any run.\n")
+             "clamp positions (photo estimates) before any run.")
+    L.append("- Site keep-outs (hopper, hose, cables, cage, anything not in cell.yaml): added to a local copy of "
+             "`config/cell.yaml` (`keep_out`) and checked locally before running; never committed.")
+    L.append("- The controller's INI / BAS(#INITMOV,0) defaults the program relies on ($ACC.CP, $VEL.ORI, ...).\n")
     L.append("## Files\n")
     for f, what in files:
         L.append(f"- `{f}`: {what}")
-    with open(path, "w") as fh:
+    with open(path, "w", newline="\n") as fh:
         fh.write("\n".join(L) + "\n")
