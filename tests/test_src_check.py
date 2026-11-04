@@ -243,14 +243,16 @@ def test_lin_needing_configuration_change(checker, p0):
 
 
 def test_lin_reorientation_near_180_not_checked(checker, p0):
-    """A #VAR LIN that turns the tool by ~180 deg has no unique shortest rotation (the path would depend
-    on rounding): its path is not checked (exit 3), the target pose is."""
+    """Review 2, item 1: a #VAR LIN that turns the tool by exactly 180 deg has no unique shortest rotation
+    (the direction the controller takes is not known; the sampled path would depend on rounding). It must
+    flag or be not checked, never pass: its path is not checked (exit 3), the target pose is."""
     x, y, z, zp = p0
     body = [lin(x + 60, y + 60, zp + 40), lin(x + 60, y + 60, zp + 40, -180, 120, 0)]
-    rep = check_text(program(body), checker=checker)
-    r = rep["motions"][-1]
-    assert not r["checked"] and any("180" in n for n in r["not_checked"])
-    assert rep["exit_code"] == 3 and not rep["flags"]
+    for ck in (checker, SrcChecker(start_axis_deg=Q0_SRC)):
+        rep = check_text(program(body), checker=ck)
+        r = rep["motions"][-1]
+        assert not r["checked"] and any("about 180 deg" in n for n in r["not_checked"])
+        assert rep["exit_code"] == 3 and not rep["flags"]
 
 
 def test_unmodelled_tool(checker, p0):
@@ -489,7 +491,7 @@ def test_item4_unknown_state_after_statement_not_interpreted(p0):
     body = [lin(x, y, zp), "$TOOL = $NULLFRAME", lin(x + 10, y, zp), lin(x + 20, y, zp),
             "$TOOL = TOOL_DATA[3]", ptp_q0, lin(x, y, zp),
             "BAS(#VEL_CP, 0.5)", "$TOOL = TOOL_DATA[3]", "$BASE = $NULLFRAME", ptp_q0, lin(x + 10, y, zp),
-            "$VEL.CP = 0.012", "BAS(#VEL_PTP,5)", ptp_q0, lin(x + 20, y, zp)]
+            "$VEL.CP = 0.012", "$ORI_TYPE = #VAR", "BAS(#VEL_PTP,5)", ptp_q0, lin(x + 20, y, zp)]
     rep = check_text(program(body), checker=ck)
     assert rep["exit_code"] == 2
     ms = rep["motions"][1:]          # after the first PTP
@@ -501,6 +503,7 @@ def test_item4_unknown_state_after_statement_not_interpreted(p0):
     # BAS(#VEL_CP, ...) is a call: every setting and the pose are unknown after it
     assert ms[5]["kind"] == "PTP" and any("$VEL_AXIS[1]" in n and "unknown" in n for n in ms[5]["not_checked"])
     assert any("$VEL.CP unknown" in n for n in ms[6]["not_checked"])
+    assert any("$ORI_TYPE unknown" in n for n in ms[6]["not_checked"])   # the call may change $ORI_TYPE too
     assert ms[7]["checked"] and ms[8]["checked"] and ms[8]["speed_mm_s"] == 12.0
 
 
@@ -540,3 +543,92 @@ def test_item6_pdat_and_no_effect_settings(p0):
     ds = program(["PDAT_ACT = PPDAT1", "BAS(#PTP_PARAMS, 100)", tgt])
     rep = check_text(ds, checker=ck)
     assert rep["exit_code"] == 3 and not rep["motions"][-1]["checked"]
+
+
+# ---------------------------------------------------------------- review 2, items 2-4
+@pytest.mark.parametrize("write", ["TOOL_DATA[3] = {X 0, Y 0, Z 400, A 0, B 0, C 0}", "TOOL_DATA[3].X = 400"])
+def test_review2_item2_frame_table_write_makes_frame_unknown(p0, write):
+    """2. A write to TOOL_DATA[...] (a whole frame or one field) is not interpreted (exit 2); TOOL 3 is unknown
+    from there on, also after BAS(#TOOL,3) / $TOOL = TOOL_DATA[3]: every later Cartesian motion is not checked."""
+    ck = SrcChecker(start_axis_deg=Q0_SRC)
+    body = clean_body(p0)
+    text = program(body[:2] + [write] + body[2:4] + ["BAS(#TOOL,3)"] + body[4:5] + ["$TOOL = TOOL_DATA[3]"]
+                   + body[5:])
+    rep = check_text(text, checker=ck)
+    ln = _line_of(text, write)
+    assert {s["line"]: s["kind"] for s in rep["statements"]}[ln] == "not_interpreted"
+    assert [i["line"] for i in rep["issues"]] == [ln] and rep["issues"][0]["code"] == "not_interpreted"
+    assert rep["exit_code"] == 2
+    before = [r for r in rep["motions"] if r["line"] < ln]
+    after = [r for r in rep["motions"] if r["line"] > ln and r["target_type"] == "cartesian"]
+    assert all(r["checked"] for r in before) and len(after) == 4
+    assert all(not r["checked"] and any("$TOOL unknown" in n for n in r["not_checked"]) for r in after)
+    # the same program without the write is checked completely (exit 0)
+    clean = text.replace(write + "\n", "")
+    assert check_text(clean, checker=ck)["exit_code"] == 0
+    # BASE_DATA writes are not user assignments either (whole frame and one field)
+    for bw in ("BASE_DATA[1] = {X 0, Y 0, Z 0, A 0, B 0, C 0}", "BASE_DATA[1].Z = 5"):
+        r2 = check_text(program(body[:2] + [bw] + body[2:]), checker=ck)
+        assert r2["exit_code"] == 2 and "not_interpreted" in codes(r2)
+
+
+def test_review2_item3_each_def_is_its_own_section(p0):
+    """3. A second DEF in the file does not continue the first one: its pose and every setting are unknown at
+    its start (first motion not checked, like the program's first motion; settings must be set inside it),
+    and the report has one section per DEF."""
+    ck = SrcChecker(start_axis_deg=Q0_SRC)
+    x, y, z, zp = p0
+    main = program(clean_body(p0))
+    assert check_text(main, checker=ck)["exit_code"] == 0
+    # the second DEF relies on the first one's TOOL / BASE / $VEL.CP and pose: nothing in it is checked
+    sub = ["DEF second()", lin(x + 10, y, zp), lin(x + 20, y, zp), "END"]
+    rep = check_text(main + "\n".join(sub) + "\n", checker=ck)
+    assert rep["exit_code"] == 3 and not rep["issues"] and not rep["flags"]
+    assert [d["def"] for d in rep["sections"]] == ["synthetic", "second"]
+    s1, s2 = rep["sections"]
+    assert s1["not_checked_motions"] == 0 and s2["motions"] == 2 and s2["not_checked_motions"] == 2
+    first2 = next(r for r in rep["motions"] if r["def"] == "second")
+    assert any("first motion of a DEF" in n for n in first2["not_checked"])
+    assert any("$TOOL unknown" in n for n in first2["not_checked"])
+    # a second DEF that sets everything itself ($ORI_TYPE included): only its first motion is not checked
+    sub_full = program(clean_body(p0), head=["$ORI_TYPE = #VAR"]).replace("DEF synthetic()", "DEF third()")
+    rep = check_text(main + sub_full, checker=ck)
+    s2 = rep["sections"][1]
+    assert rep["exit_code"] == 3 and s2["def"] == "third" and s2["not_checked_motions"] == 1
+    assert rep["summary"]["not_checked_lines"] == [next(r["line"] for r in rep["motions"] if r["def"] == "third")]
+    # a flag in the second DEF is reported in it
+    fast = program(clean_body(p0), vel_cp=0.2, head=["$ORI_TYPE = #VAR"]).replace("DEF synthetic()", "DEF fast()")
+    rep = check_text(main + fast, checker=ck)
+    assert rep["exit_code"] == 1 and rep["sections"][0]["flagged_motions"] == 0
+    assert rep["sections"][1]["flagged_motions"] > 0
+
+
+@pytest.mark.parametrize("value", ["-0.5", "0", "1e999"])
+def test_review2_item4_vel_cp_not_positive_finite_is_an_error(p0, value):
+    """4a. $VEL.CP <= 0 or non-finite is an error (exit 2) and the LINs after it are not checked."""
+    ck = SrcChecker(start_axis_deg=Q0_SRC)
+    text = program(clean_body(p0), vel_cp=value)
+    rep = check_text(text, checker=ck)
+    assert rep["exit_code"] == 2 and codes(rep) == {"invalid_setting"}
+    assert rep["summary"]["invalid_setting_lines"] == [_line_of(text, f"$VEL.CP = {value}")]
+    lins = [r for r in rep["motions"] if r["kind"] == "LIN"]
+    assert lins and all(not r["checked"] and any("$VEL.CP unknown" in n for n in r["not_checked"]) for r in lins)
+
+
+def test_review2_item4_unknown_ori_type_lin_not_checked(p0):
+    """4b. An $ORI_TYPE the checker does not model (or that is unknown) makes the path of a dependent LIN
+    not checked; it is never checked as #VAR."""
+    ck = SrcChecker(start_axis_deg=Q0_SRC)
+    x, y, z, zp = p0
+    body = [lin(x, y, zp), "$ORI_TYPE = #JOINT", lin(x + 10, y, zp, 20, 90, 0), "$ORI_TYPE = #VAR",
+            lin(x + 20, y, zp)]
+    text = program(body)
+    rep = check_text(text, checker=ck)
+    assert rep["exit_code"] == 2 and codes(rep) == {"not_interpreted"}
+    m_unk, m_var = (_motion_at(rep, _line_of(text, b)) for b in (body[2], body[4]))
+    assert not m_unk["checked"] and any("$ORI_TYPE unknown" in n for n in m_unk["not_checked"])
+    assert m_var["checked"], m_var["not_checked"]
+    # also unknown through a statement not interpreted ($ORI_TYPE = a variable)
+    text = program([lin(x, y, zp), "$ORI_TYPE = MYORI", lin(x + 10, y, zp)])
+    r = check_text(text, checker=ck)["motions"][-1]
+    assert not r["checked"] and any("$ORI_TYPE unknown" in n for n in r["not_checked"])

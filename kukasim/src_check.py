@@ -28,7 +28,8 @@ Checks per motion (thresholds: ``src_check`` in config/planner.yaml):
 5. nozzle height (M3): tip Z above the highest bed top, and tip XY of LIN moves inside the
    bed outline minus a margin.
 
-A motion whose start pose or settings are unknown is "not checked" (target pose only).
+A motion whose start pose or settings are unknown is "not checked" (target pose only). Each DEF of a file is
+its own section; a DEF after the first one starts with an unknown pose and unknown settings.
 Exit codes: 0 every motion checked and no flag; 1 at least one flag; 2 parse / frame error or
 a statement not interpreted; 3 no flag but at least one motion not checked.
 "No flag" means no flag in this model; it does not replace a check on the controller.
@@ -56,7 +57,7 @@ MODELLED_BASE = 0
 LOCAL_KEEP_OUT = REPO / "config" / "keep_out.local.yaml"
 
 # issue codes; severity "error" -> exit 2, "flag" -> exit 1
-ERRORS = ("parse_error", "frame_not_modelled", "not_interpreted")
+ERRORS = ("parse_error", "frame_not_modelled", "not_interpreted", "invalid_setting")
 FLAGS = ("reach", "lin_branch", "singularity", "speed", "clearance", "nozzle_height", "bed_edge")
 EXIT_RESULT = {0: "no flag, every motion checked (in this model)", 1: "flagged",
                2: "parse / frame error or statement not interpreted", 3: "no flag, but motion(s) not checked"}
@@ -67,7 +68,7 @@ MOTION_WORDS = ("PTP", "LIN", "CIRC", "SPTP", "SLIN", "SCIRC", "PTP_REL", "LIN_R
 _NUM = r"[-+]?(?:\d+\.?\d*|\.\d+)(?:[eE][-+]?\d+)?"
 _RE = {k: re.compile(v, re.IGNORECASE) for k, v in {
     "attribute": r"^&\w+",
-    "def": r"^(?:GLOBAL\s+)?DEF\s+\w+\s*\([^)]*\)$",
+    "def": r"^(?:GLOBAL\s+)?DEF\s+(\w+)\s*\([^)]*\)$",
     "end": r"^END$",
     "halt": r"^HALT$",
     "wait": rf"^WAIT\s+SEC\s+(?:{_NUM}|[A-Za-z_]\w*)$",
@@ -98,7 +99,9 @@ _RE = {k: re.compile(v, re.IGNORECASE) for k, v in {
     "ov_pro": r"^\$OV_PRO\s*=\s*(.+)$",
     "base": r"^\$BASE\s*=\s*(?:(\$NULLFRAME)|BASE_DATA\s*\[\s*(\d+)\s*\])$",
     "tool": r"^\$TOOL\s*=\s*TOOL_DATA\s*\[\s*(\d+)\s*\]$",
-    "ori_type": r"^\$ORI_TYPE\s*=\s*#(CONSTANT|VAR)$",
+    "ori_type": r"^\$ORI_TYPE\s*=\s*#(\w+)$",
+    # writes to the frame tables (whole frame or one field); not modelled
+    "frame_data": r"^(TOOL_DATA|BASE_DATA)\s*(?:\[([^\]]*)\])?((?:\s*\.\s*\w+)*)\s*=\s*(.+)$",
     "pdat_member": r"^PDAT_ACT\s*\.\s*(VEL|ACC|APO_DIST)\s*=\s*(.+)$",
     "pdat_whole": r"^PDAT_ACT\s*=\s*(.+)$",
     "bwdstart": r"^\$BWDSTART\s*=\s*(TRUE|FALSE)$",
@@ -141,6 +144,8 @@ class _Unknown:
 
 
 UNKNOWN = _Unknown()
+_UNK_WHY = ("changed by a statement not interpreted or invalid, or inherited from the caller at the start "
+            "of a DEF")
 
 
 class Multi(frozenset):
@@ -178,6 +183,7 @@ class Motion:
     state: dict = field(default_factory=dict)   # settings in force at this motion (Multi: one of several)
     prev: frozenset = frozenset()   # motions that may run just before ("start": program start, UNKNOWN)
     context: tuple = ()             # enclosing IF / SWITCH / loop keywords
+    section: int = 0                # index of the DEF it belongs to (Program.sections)
 
 
 @dataclass
@@ -199,6 +205,7 @@ class Program:
     statements: list
     motions: list
     issues: list                   # parse / frame errors and statements not interpreted
+    sections: list = field(default_factory=list)   # one per DEF: name, line, end_line, first
 
 
 def _strip_comment(raw):
@@ -292,6 +299,11 @@ def _unknown_effect(s):
     return ("unknown", tuple(_ALL_MODELLED), True)
 
 
+def _valid(v):
+    """A speed / acceleration value the checker can use: finite and > 0."""
+    return v is not None and math.isfinite(v) and v > 0
+
+
 def _classify(i, raw, s, issues):
     """One statement: (Statement, control keyword or None)."""
     R = {k: r.match(s) for k, r in _RE.items()}
@@ -302,6 +314,11 @@ def _classify(i, raw, s, issues):
     def not_interp(msg=None, op=None):
         issues.append(Issue("not_interpreted", i, msg or f"not interpreted: {s}"))
         return st("not_interpreted", "", op or _unknown_effect(s))
+
+    def invalid(name, v, keys):
+        issues.append(Issue("invalid_setting", i, f"{name} = {v:g}: not a positive finite value (the setting "
+                                                  f"is unknown from here on): {s}"))
+        return st("invalid_setting", f"{name} invalid", ("unknown", tuple(keys), False))
 
     def frame(which, n):
         if n != (MODELLED_TOOL if which == "TOOL" else MODELLED_BASE):
@@ -321,7 +338,7 @@ def _classify(i, raw, s, issues):
     if R["attribute"]:
         return st("no_motion", "editor attribute"), None
     if R["def"]:
-        return st("no_motion", "DEF"), None
+        return st("no_motion", "DEF", ("def", R["def"].group(1))), None
     if R["end"]:
         return st("no_motion", "END"), None
     if R["halt"]:
@@ -346,6 +363,9 @@ def _classify(i, raw, s, issues):
         if what == "INITMOV":
             return st("setting", "BAS(#INITMOV): controller defaults (not modelled: speeds unset)",
                       ("initmov",)), None
+        if what in ("VEL_PTP", "PTP_PARAMS") and not _valid(n):
+            return invalid(f"BAS(#{what})", n, [(k, i) for k in ("vel_axis_pct", "acc_axis_pct") for i in _AXES]
+                           if what == "PTP_PARAMS" else [("vel_axis_pct", i) for i in _AXES]), None
         if what == "VEL_PTP":
             return st("setting", f"$VEL_AXIS[1..6] = {n:g} %", ("axes", "vel_axis_pct", tuple(_AXES), n)), None
         if what == "PTP_PARAMS":
@@ -368,6 +388,8 @@ def _classify(i, raw, s, issues):
         if v is None:
             return not_interp(f"$VEL.CP is not a number (speed unknown): {s}",
                               ("unknown", ("vel_cp_m_s",), not _pure(R["vel_cp"].group(1)))), None
+        if not _valid(v):
+            return invalid("$VEL.CP", v, ("vel_cp_m_s",)), None
         return st("setting", f"$VEL.CP = {v:g} m/s", ("set", "vel_cp_m_s", v)), None
     if R["vel_axis"] or R["acc_axis"]:
         key = "vel_axis_pct" if R["vel_axis"] else "acc_axis_pct"
@@ -376,6 +398,8 @@ def _classify(i, raw, s, issues):
         if not 1 <= k <= 6 or v is None:
             return not_interp(), None
         name = "$VEL_AXIS" if key == "vel_axis_pct" else "$ACC_AXIS"
+        if not _valid(v):
+            return invalid(f"{name}[{k}]", v, ((key, k - 1),)), None
         return st("setting", f"{name}[{k}] = {v:g} %", ("axes", key, (k - 1,), v)), None
     if R["apo_cdis"]:
         if not _pure(R["apo_cdis"].group(1)):
@@ -391,6 +415,9 @@ def _classify(i, raw, s, issues):
         return frame("TOOL", int(R["tool"].group(1))), None
     if R["ori_type"]:
         v = "#" + R["ori_type"].group(1).upper()
+        if v not in ("#CONSTANT", "#VAR"):
+            return not_interp(f"$ORI_TYPE {v} not modelled (only #VAR and #CONSTANT): {s}",
+                              ("unknown", ("ori_type",), False)), None
         return st("setting", f"$ORI_TYPE = {v}", ("set", "ori_type", v)), None
     if R["pdat_member"]:
         mem, rhs = R["pdat_member"].group(1).upper(), R["pdat_member"].group(2)
@@ -403,6 +430,8 @@ def _classify(i, raw, s, issues):
         if v is None:
             return not_interp(f"PDAT_ACT.{mem} is not a number (value unknown): {s}",
                               ("unknown", (key,), not _pure(rhs))), None
+        if not _valid(v):
+            return invalid(f"PDAT_ACT.{mem}", v, (key,)), None
         return st("setting", f"PDAT_ACT.{mem} = {v:g} % (used by BAS(#PTP_PARAMS))", ("set", key, v)), None
     if R["pdat_whole"]:
         rhs = R["pdat_whole"].group(1).strip()
@@ -422,6 +451,14 @@ def _classify(i, raw, s, issues):
         return st("setting", "$BWDSTART (no effect on the checks)"), None
     if R["advance"]:
         return st("setting", "$ADVANCE (no effect on the checks)"), None
+    if R["frame_data"]:
+        table, idx = R["frame_data"].group(1).upper(), (R["frame_data"].group(2) or "").strip()
+        which = "tool" if table == "TOOL_DATA" else "base"
+        n = int(idx) if re.fullmatch(r"\d+", idx) else "*"
+        frame_op = ("frame_write", which, n, not _pure(R["frame_data"].group(4)))
+        return not_interp(f"write to {table}" + (f"[{n}]" if n != "*" else "") + " not modelled: "
+                          + ("that frame" if n != "*" else f"every {table} frame") + " is unknown from here on: "
+                          + s, frame_op), None
     if R["user_assign"] and R["user_assign"].group(1).upper() not in _KEYWORDS:
         if _pure(R["user_assign"].group(2)):
             return st("no_motion", f"assignment to user variable {R['user_assign'].group(1)}"), None
@@ -499,8 +536,10 @@ class _Interpreter:
     keeps the incoming values). Loops: the body is run until the set of reachable states no longer
     grows; every state a loop can reach (also at EXIT) flows on after it."""
 
-    def __init__(self, motions):
+    def __init__(self, motions, frame_writes=frozenset()):
         self.motions = motions
+        # every TOOL_DATA / BASE_DATA write in the file ({("tool" | "base", n | "*")}): a call may run any of them
+        self.frame_writes = frame_writes
         self.rec = {}            # id(motion) -> merged state
         self.ctx = {}
         self.exits = []
@@ -513,6 +552,17 @@ class _Interpreter:
         t = op[0]
         if t == "set":
             S[op[1]] = frozenset([op[2]])
+            if op[1] in ("tool", "base") and op[2] != 0 and S["dirty_" + op[1]] & {op[2], "*"}:
+                # TOOL_DATA[n] / BASE_DATA[n] may have been written by a statement not modelled
+                S[op[1]] = frozenset([UNKNOWN])
+        elif t == "frame_write":
+            which, n, call = op[1], op[2], op[3]
+            S["dirty_" + which] = S["dirty_" + which] | {n}
+            # conservative: the active frame is unknown at once if it may be the one written
+            if n == "*" or n in S[which]:
+                S[which] = frozenset([UNKNOWN])
+            if call:
+                S = self.apply(Statement(0, "", "not_interpreted", "", ("unknown", tuple(_ALL_MODELLED), True)), S)
         elif t == "axes":
             for i in op[2]:
                 S[(op[1], i)] = frozenset([op[3]])
@@ -535,6 +585,8 @@ class _Interpreter:
                 S[k] = frozenset([UNKNOWN])
             if op[2]:
                 S["prev"] = frozenset([UNKNOWN])
+                for which, n in self.frame_writes:      # a call may run any frame write of the file
+                    S["dirty_" + which] = S["dirty_" + which] | {n}
         elif t == "motion":
             m = op[1]
             key = id(m)
@@ -573,8 +625,25 @@ def _collapse(v):
     return next(iter(v)) if len(v) == 1 else Multi(v)
 
 
+def _initial_state(first, frame_writes=frozenset()):
+    """Settings at the start of a DEF. The first DEF of the file (the program): nothing set (None), pose from
+    --start-axis. Any later DEF (a subprogram / function called from elsewhere): every setting, the pose and
+    the frame tables may come from the caller, so all are unknown."""
+    if first:
+        S = {k: frozenset([False if k == "rsi_on" else None]) for k in SETTING_KEYS}
+        S["prev"] = frozenset(["start"])
+        S["dirty_tool"] = S["dirty_base"] = frozenset()
+        return S
+    S = {k: frozenset([False, True] if k == "rsi_on" else [UNKNOWN]) for k in SETTING_KEYS}
+    S["prev"] = frozenset(["def_start"])
+    S["dirty_tool"] = frozenset(n for w, n in frame_writes if w == "tool")
+    S["dirty_base"] = frozenset(n for w, n in frame_writes if w == "base")
+    return S
+
+
 def parse_program(text):
-    """Read a .src text into statements, motions (with the settings that may be in force) and issues."""
+    """Read a .src text into statements, motions (with the settings that may be in force) and issues.
+    Each DEF is its own section: at every DEF after the first, the pose and every setting are reset to unknown."""
     issues, items = [], []
     for i, raw in enumerate(text.splitlines(), start=1):
         s = _strip_comment(raw)
@@ -582,11 +651,34 @@ def parse_program(text):
             items.append(_classify(i, raw, s, issues))
     statements = [st for st, _ in items]
     motions = [st.op[1] for st in statements if st.op is not None and st.op[0] == "motion"]
-    tree = _build_tree(items, issues)
-    S0 = {k: frozenset([False if k == "rsi_on" else None]) for k in SETTING_KEYS}
-    S0["prev"] = frozenset(["start"])
-    it = _Interpreter(motions)
-    it.run(tree, S0)
+    frame_writes = frozenset((st.op[1], st.op[2]) for st in statements
+                             if st.op is not None and st.op[0] == "frame_write")
+    # split into DEF sections (statements before the first DEF belong to it)
+    parts, seen_def = [[]], False
+    for item in items:
+        op = item[0].op
+        if op is not None and op[0] == "def":
+            if seen_def:
+                parts.append([])
+            seen_def = True
+        parts[-1].append(item)
+    sections = []
+    it = _Interpreter(motions, frame_writes)
+    S0 = None
+    for k, part in enumerate(parts):
+        d = next((st for st, _ in part if st.op is not None and st.op[0] == "def"), None)
+        name = d.op[1] if d is not None else "(no DEF)"
+        sec = {"name": name, "line": d.line if d is not None else part[0][0].line,
+               "end_line": part[-1][0].line, "first": k == 0}
+        sections.append(sec)
+        for st, _ in part:
+            if st.op is not None and st.op[0] == "motion":
+                st.op[1].section = k
+        tree = _build_tree(part, issues)
+        S = _initial_state(k == 0, frame_writes)
+        if k == 0:
+            S0 = S
+        it.run(tree, S)
     index = {id(m): k for k, m in enumerate(motions)}
     for m in motions:
         S = it.rec.get(id(m))
@@ -598,7 +690,7 @@ def parse_program(text):
         m.prev = frozenset(index[p] if isinstance(p, int) and p in index else p for p in S["prev"])
         m.context = it.ctx.get(id(m), ())
     issues.sort(key=lambda x: x.line)
-    return Program(statements, motions, issues)
+    return Program(statements, motions, issues, sections)
 
 
 # --------------------------------------------------------------------------- keep-out
@@ -797,6 +889,9 @@ class SrcChecker:
         for p in m.prev:
             if p is UNKNOWN:
                 return [], "a statement before it that is not interpreted may have moved the robot"
+            if p == "def_start":
+                return [], ("first motion of a DEF after the first one: its start pose and settings come "
+                            "from the caller")
             if p == "start":
                 if self.start_q is None:
                     return [], "first motion of the program (give --start-axis)"
@@ -820,7 +915,8 @@ class SrcChecker:
         out = []
         for idx, m in enumerate(prog.motions):
             st = m.state
-            rec = {"line": m.line, "kind": m.kind, "target_type": m.target_type,
+            rec = {"line": m.line, "def": prog.sections[m.section]["name"] if prog.sections else None,
+                   "kind": m.kind, "target_type": m.target_type,
                    "target": {k: v for k, v in m.values.items()}, "approx": m.approx,
                    "flags": [], "notes": [], "not_checked": []}
             out.append(rec)
@@ -851,7 +947,7 @@ class SrcChecker:
                 if missing:
                     prog.issues.append(Issue("frame_not_modelled", m.line,
                                              f"{missing} not set before this Cartesian motion"))
-                bad = [f"${n} unknown (changed by a statement not interpreted)" for n, o in
+                bad = [f"${n} unknown ({_UNK_WHY})" for n, o in
                        (("TOOL", tool), ("BASE", base)) if UNKNOWN in o]
                 if not bad and (tool != {MODELLED_TOOL} or base != {MODELLED_BASE}):
                     bad = ["frame not modelled" + (" (depends on a branch: TOOL " + repr(st["tool"]) + ", BASE "
@@ -859,8 +955,7 @@ class SrcChecker:
                 if bad:
                     rec["not_checked"] += [f"not checked: {b}" for b in bad]
                     if m.kind == "LIN" and UNKNOWN in _options(st["vel_cp_m_s"]):
-                        rec["not_checked"].append("not checked: $VEL.CP unknown (changed by a statement not "
-                                                  "interpreted)")
+                        rec["not_checked"].append(f"not checked: $VEL.CP unknown ({_UNK_WHY})")
                     if unknown_why is not None:
                         rec["not_checked"].append(f"start unknown: {unknown_why}")
                     rec["checked"] = False
@@ -918,7 +1013,7 @@ class SrcChecker:
             opts = _options(st["vel_cp_m_s"])
             rec["speed_source"] = "$VEL.CP at 100 % override"
             if UNKNOWN in opts:
-                nc.append("not checked: $VEL.CP unknown (changed by a statement not interpreted)")
+                nc.append(f"not checked: $VEL.CP unknown ({_UNK_WHY})")
             elif None in opts:
                 rec["flags"].append({"code": "speed", "message": "$VEL.CP not set by the program on every path "
                                                                  "to this motion (controller default unknown)"})
@@ -953,7 +1048,7 @@ class SrcChecker:
         # path
         if m.kind == "PTP":
             if vel_unk:
-                nc.append(f"not checked (speed): {vel_unk} unknown (changed by a statement not interpreted)")
+                nc.append(f"not checked (speed): {vel_unk} unknown ({_UNK_WHY})")
             if q_prev is None:
                 Q = q1[None]
                 rec["speed_source"] = "start unknown, not checked (path and speed); target pose checked"
@@ -984,6 +1079,9 @@ class SrcChecker:
             ori = _options(st["ori_type"])
             if q_prev is None:
                 Q = q1[None]
+            elif UNKNOWN in ori:
+                Q = q1[None]
+                nc.append(f"not checked (path): $ORI_TYPE unknown ({_UNK_WHY}); target pose checked")
             elif len(ori) > 1:
                 Q = q1[None]
                 nc.append("not checked (path): $ORI_TYPE depends on a branch / loop; target pose checked")
@@ -1042,6 +1140,16 @@ ASSUMPTIONS = [
     "appears; a motion is checked with the worst case of every value a setting may hold there (highest "
     "$VEL.CP, $VEL_AXIS, $ACC_AXIS; any TOOL / BASE that may be active). A motion whose start pose depends on "
     "a branch is checked from every possible start; one whose start depends on a loop is not checked.",
+    "Frame tables: a write to TOOL_DATA[n] / BASE_DATA[n] (a whole frame or one field) is not interpreted "
+    "(exit code 2). Frame n is unknown from there on (also the active $TOOL / $BASE if it may be frame n), so "
+    "every later Cartesian motion that uses it is not checked, also after BAS(#TOOL, n) / $TOOL = TOOL_DATA[n]; "
+    "a call may run any frame write of the file.",
+    "DEF sections: each DEF is checked on its own. A DEF after the first one starts with an unknown pose and "
+    "unknown settings (they come from the caller), so its first motion is not checked and every setting must "
+    "be set inside it before a motion that depends on it is checked.",
+    "Values: $VEL.CP, $VEL_AXIS, $ACC_AXIS, BAS(#VEL_PTP / #PTP_PARAMS) and PDAT_ACT.VEL / .ACC must be finite "
+    "and > 0; any other value is an error (exit code 2) and leaves the setting unknown. $ORI_TYPE other than "
+    "#VAR / #CONSTANT, or unknown, makes the path of a dependent LIN not checked.",
     "Nothing here was run on the robot: 'no flag' means no flag in this model, not a check on the controller.",
 ]
 
@@ -1055,6 +1163,15 @@ def build_report(program_path, prog, motions, checker):
     not_checked = [r for r in motions if not r.get("checked", True)]
     exit_code = 2 if has_error else 1 if has_flag else 3 if not_checked else 0
     stmts = [{"line": s.line, "kind": s.kind, "what": s.what, "text": s.text.strip()} for s in prog.statements]
+    sections = []
+    for k, sec in enumerate(prog.sections):
+        ms = [r for r, m in zip(motions, prog.motions) if m.section == k]
+        sections.append({"def": sec["name"], "line": sec["line"], "end_line": sec["end_line"],
+                         "start": "program start (--start-axis)" if sec["first"] else
+                                  "unknown: pose and settings from the caller",
+                         "motions": len(ms), "flagged_motions": sum(bool(r["flags"]) for r in ms),
+                         "not_checked_motions": sum(not r.get("checked", True) for r in ms),
+                         "issue_lines": [i["line"] for i in issues if sec["line"] <= i["line"] <= sec["end_line"]]})
     ko = {"source": checker.keep_out_source, "boxes_from_file": checker.n_keep_out_extra,
           "boxes_in_cell_yaml": checker.n_keep_out_cell}
     return {
@@ -1071,6 +1188,7 @@ def build_report(program_path, prog, motions, checker):
             "flag_counts": {c: sum(f["code"] == c for f in flags) for c in FLAGS if any(f["code"] == c for f in flags)},
             "issue_codes": codes,
             "not_interpreted_lines": [s["line"] for s in stmts if s["kind"] == "not_interpreted"],
+            "invalid_setting_lines": [s["line"] for s in stmts if s["kind"] == "invalid_setting"],
             "non_motion_lines": [s["line"] for s in stmts if s["kind"] == "no_motion"],
             "no_effect_setting_lines": [s["line"] for s in stmts if s["kind"] == "setting"
                                         and "no effect on the checks" in s["what"]],
@@ -1081,6 +1199,7 @@ def build_report(program_path, prog, motions, checker):
             "min_tip_height_mm": min((r["min_tip_height_mm"] for r in motions if "min_tip_height_mm" in r),
                                      default=None),
         },
+        "sections": sections,
         "keep_out": ko,
         "thresholds": dict(checker.p),
         "assumptions": ASSUMPTIONS,
@@ -1115,8 +1234,14 @@ def write_markdown(path, rep):
          f"min tip height above the highest bed top: {s['min_tip_height_mm']} mm",
          f"- keep-out: {ko['source']}; {ko['boxes_from_file']} box(es) from that file, "
          f"{ko['boxes_in_cell_yaml']} in cell.yaml (coordinates not reported)", "",
-         "## Statements not interpreted", ""]
-    ni = [x for x in rep["statements"] if x["kind"] == "not_interpreted"]
+         "## DEF sections", "",
+         "Each DEF is checked on its own. A DEF after the first one starts with an unknown pose and unknown "
+         "settings (they come from the caller), so its first motion is not checked.", ""]
+    L += [f"- DEF {d['def']} (lines {d['line']}-{d['end_line']}; start {d['start']}): {d['motions']} motion(s), "
+          f"flagged {d['flagged_motions']}, not checked {d['not_checked_motions']}, errors "
+          f"{len(d['issue_lines'])}" for d in rep.get("sections", [])] or ["none"]
+    L += ["", "## Statements not interpreted or invalid", ""]
+    ni = [x for x in rep["statements"] if x["kind"] in ("not_interpreted", "invalid_setting")]
     L += [f"- line {x['line']}: `{x['text']}`" for x in ni] or ["none"]
     L += ["", "## Motions not checked", ""]
     L += [f"- line {r['line']}: " + "; ".join(r["not_checked"]) for r in rep["motions"] if r["not_checked"]] or ["none"]
@@ -1128,21 +1253,33 @@ def write_markdown(path, rep):
     L += [f"- line {x['line']}: `{x['text']}` ({x['what']})" for x in nm] or ["none"]
     L += ["", "## Flags", ""]
     L += [f"- line {f['line']}: {f['code']}: {f['message']}" for f in rep["flags"]] or ["none"]
-    L += ["", "## Motions", "",
-          "| line | kind | target | speed mm/s | min clearance mm (pair) | tip height mm | branch | flags |",
-          "|---|---|---|---|---|---|---|---|"]
-    for r in rep["motions"]:
-        br = r.get("branch")
-        brs = "-" if not br else f"S {br['S']} T {br['T']}" + (" (assumed)" if br["how"].startswith("ASSUMED") else "")
-        cl = "-" if "min_clearance_mm" not in r else f"{r['min_clearance_mm']:.1f} ({' / '.join(r['clearance_pair'])})"
-        sp = "-" if r.get("speed_mm_s") is None else f"{r['speed_mm_s']:g}"
-        if r.get("speed_mm_s") is None and r.get("speed_source", "").startswith("start unknown"):
-            sp = "start unknown, not checked"
-        elif r["not_checked"]:
-            sp = ("-" if sp == "-" else sp) + " (not checked)"
-        th = "-" if "min_tip_height_mm" not in r else f"{r['min_tip_height_mm']:.2f}"
-        fl = "; ".join(f"{f['code']}: {f['message']}" for f in r["flags"]) or ""
-        L.append(f"| {r['line']} | {r['kind']} | {_fmt_target(r)} | {sp} | {cl} | {th} | {brs} | {fl} |")
+    L += ["", "## Motions"]
+    defs = rep.get("sections") or [{"def": None}]
+    for d in defs:
+        L += [""] + ([f"### DEF {d['def']} (lines {d['line']}-{d['end_line']})", ""] if d["def"] is not None else [])
+        L += ["| line | kind | target | speed mm/s | min clearance mm (pair) | tip height mm | branch | flags |",
+              "|---|---|---|---|---|---|---|---|"]
+        L += [_motion_row(r) for r in rep["motions"] if d["def"] is None or d["line"] <= r["line"] <= d["end_line"]]
+    _rest(L, rep)
+    with open(path, "w", encoding="utf-8", newline="\n") as f:
+        f.write("\n".join(L) + "\n")
+
+
+def _motion_row(r):
+    br = r.get("branch")
+    brs = "-" if not br else f"S {br['S']} T {br['T']}" + (" (assumed)" if br["how"].startswith("ASSUMED") else "")
+    cl = "-" if "min_clearance_mm" not in r else f"{r['min_clearance_mm']:.1f} ({' / '.join(r['clearance_pair'])})"
+    sp = "-" if r.get("speed_mm_s") is None else f"{r['speed_mm_s']:g}"
+    if r.get("speed_mm_s") is None and r.get("speed_source", "").startswith("start unknown"):
+        sp = "start unknown, not checked"
+    elif r["not_checked"]:
+        sp = ("-" if sp == "-" else sp) + " (not checked)"
+    th = "-" if "min_tip_height_mm" not in r else f"{r['min_tip_height_mm']:.2f}"
+    fl = "; ".join(f"{f['code']}: {f['message']}" for f in r["flags"]) or ""
+    return f"| {r['line']} | {r['kind']} | {_fmt_target(r)} | {sp} | {cl} | {th} | {brs} | {fl} |"
+
+
+def _rest(L, rep):
     notes = [(r["line"], n) for r in rep["motions"] for n in r["notes"]]
     assumed = [r for r in rep["motions"] if r.get("branch") and r["branch"]["how"].startswith("ASSUMED")]
     if assumed or notes:
@@ -1156,8 +1293,6 @@ def write_markdown(path, rep):
     L += ["", "## Thresholds (config/planner.yaml src_check)", ""]
     L += [f"- {k}: {v}" for k, v in rep["thresholds"].items()]
     L += ["", "## Assumptions", ""] + [f"- {a}" for a in rep["assumptions"]]
-    with open(path, "w", encoding="utf-8", newline="\n") as f:
-        f.write("\n".join(L) + "\n")
 
 
 def _ranges(lines):
