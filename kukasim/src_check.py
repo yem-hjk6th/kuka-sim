@@ -987,6 +987,11 @@ class SrcChecker:
             elif len(ori) > 1:
                 Q = q1[None]
                 nc.append("not checked (path): $ORI_TYPE depends on a branch / loop; target pose checked")
+            elif (next(iter(ori)) or "#VAR") == "#VAR" and math.degrees(float(rotation_angle_between(
+                    self.robot.fk(q_prev)[:3, :3], T1[:3, :3]))) > 180.0 - p.get("lin_ori_ambiguous_deg", 1.0):
+                Q = q1[None]
+                nc.append("not checked (path): the LIN turns the tool by about 180 deg, so the shortest rotation "
+                          "(and the controller's path) is not unique; target pose checked")
             else:
                 ori_type = next(iter(ori)) or "#VAR"
                 Ts = self._lin_samples(self.robot.fk(q_prev), T1, ori_type)

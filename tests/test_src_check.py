@@ -230,15 +230,27 @@ def test_unreachable_target(checker, p0):
 
 
 def test_lin_needing_configuration_change(checker, p0):
-    """Tilting the nozzle by 30 deg while turning it about the vertical: the target is reachable,
-    but the branch followed from the start of the LIN leaves the limits on the way."""
+    """Tilting the nozzle by 30 deg while turning it by 160 deg about the vertical: the target is
+    reachable, but the branch followed from the start of the LIN changes configuration on the way.
+    (A 180 deg turn has no unique shortest rotation: see test_lin_reorientation_near_180_not_checked.)"""
     x, y, z, zp = p0
-    body = [lin(x + 60, y + 60, zp + 40), lin(x + 60, y + 60, zp + 40, -180, 120, 0)]
+    body = [lin(x + 60, y + 60, zp + 40), lin(x + 60, y + 60, zp + 40, 160, 120, 0)]
     rep = _expect(checker, program(body), "lin_branch", 1)
     assert rep["flags"][0]["line"] == rep["motions"][-1]["line"]
     # the target alone is reachable: as a PTP (configuration change allowed) it is not a reach flag
     body_ptp = [body[0], body[1].replace("LIN", "PTP", 1)]
     assert "reach" not in codes(check_text(program(body_ptp), checker=checker))
+
+
+def test_lin_reorientation_near_180_not_checked(checker, p0):
+    """A #VAR LIN that turns the tool by ~180 deg has no unique shortest rotation (the path would depend
+    on rounding): its path is not checked (exit 3), the target pose is."""
+    x, y, z, zp = p0
+    body = [lin(x + 60, y + 60, zp + 40), lin(x + 60, y + 60, zp + 40, -180, 120, 0)]
+    rep = check_text(program(body), checker=checker)
+    r = rep["motions"][-1]
+    assert not r["checked"] and any("180" in n for n in r["not_checked"])
+    assert rep["exit_code"] == 3 and not rep["flags"]
 
 
 def test_unmodelled_tool(checker, p0):

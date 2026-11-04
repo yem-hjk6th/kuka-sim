@@ -141,6 +141,8 @@ src_check:
   lin_sample_deg: 1.0        # NEW (no counterpart): max orientation step between LIN samples; transit LINs
                              # hold the orientation, a program's LINs may turn the nozzle by 15 deg in 1.5 mm
   ptp_sample_deg: 0.5        # = transit.ptp_sample_deg: max joint change between PTP samples
+  lin_ori_ambiguous_deg: 1.0 # NEW: a #VAR LIN turning the tool by more than 180 - this is not path-checked
+                             # (no unique shortest rotation; the sampled path would depend on rounding)
   lin_max_joint_step_deg: 3.0   # = transit.lin_max_joint_step_deg: a LIN whose IK jumps more than this
                              # between samples is not continuous (configuration change)
   min_abs_a5_deg: 10         # = hilbert_corner.min_abs_a5_deg (wrist singularity)
