@@ -1,0 +1,285 @@
+; NOT RUN - generated in simulation, never executed on a robot
+; This file was produced by kuka-sim (Hilbert corner test) and has never been run.
+; Do not load it on a controller without a separate review and a dry run.
+; Hilbert order 3, side 300 mm, centre (685.5, -396.4), layer Z 2.250, 50 corners
+; TOOL 3 assumed = {X 225.55, Y -0.6, Z 72.83, A 0.0, B 0.0, C 0.0} (copied, to be re-confirmed); BASE 0
+; Speed (krl mode): $VEL.CP = 12 mm/s on the straights; each corner leg is split at +-6 mm
+;   around the vertex and the two corner sub-segments run at $VEL.CP = r x v (set in this program,
+;   path-synchronous). Speeds assume $OV_PRO 100 %; the ratios hold at any constant override.
+; C_DIS 3 mm; KRC limits it to half the shorter adjacent segment.
+; Assumes the controller's INI / BAS(#INITMOV,0) defaults for everything not set here ($ACC.CP, $VEL.ORI, $ACC.ORI, ...); $APO.CDIS is set explicitly.
+; Approach: PTP to 20 mm above the start at $VEL_AXIS 5 % / $ACC_AXIS 10 %; the PTP from the current pose is NOT checked.
+; Checks: passed (checked against cell.yaml only; site keep-outs must be checked locally before running)
+DEF hilbert_corner()
+  $BASE = $NULLFRAME
+  $TOOL = TOOL_DATA[3]
+  $VEL.CP = 0.01200
+  $APO.CDIS = 3
+  $ORI_TYPE = #CONSTANT
+  $VEL_AXIS[1] = 5
+  $VEL_AXIS[2] = 5
+  $VEL_AXIS[3] = 5
+  $VEL_AXIS[4] = 5
+  $VEL_AXIS[5] = 5
+  $VEL_AXIS[6] = 5
+  $ACC_AXIS[1] = 10
+  $ACC_AXIS[2] = 10
+  $ACC_AXIS[3] = 10
+  $ACC_AXIS[4] = 10
+  $ACC_AXIS[5] = 10
+  $ACC_AXIS[6] = 10
+  PTP {A1 55.6749, A2 -36.0731, A3 108.0322, A4 57.0073, A5 -79.9426, A6 -15.0555}  ; 20 mm above the start (from the current pose: NOT checked)
+  LIN {X 535.500, Y -546.400, Z 2.250, A 0.0000, B 90.0000, C 0.0000}  ; start (exact stop)
+  LIN {X 535.500, Y -509.543, Z 2.250, A 0.0000, B 90.0000, C 0.0000} C_DIS  ; zone start corner 0
+  $VEL.CP = 0.00840
+  LIN {X 535.500, Y -503.543, Z 2.250, A 0.0000, B 90.0000, C 0.0000} C_DIS  ; corner 0: r 0.7, v 8.40 mm/s
+  LIN {X 541.500, Y -503.543, Z 2.250, A 0.0000, B 90.0000, C 0.0000} C_DIS  ; zone end corner 0
+  $VEL.CP = 0.01200
+  LIN {X 572.357, Y -503.543, Z 2.250, A 0.0000, B 90.0000, C 0.0000} C_DIS  ; zone start corner 1
+  $VEL.CP = 0.01380
+  LIN {X 578.357, Y -503.543, Z 2.250, A 0.0000, B 90.0000, C 0.0000} C_DIS  ; corner 1: r 1.15, v 13.80 mm/s
+  LIN {X 578.357, Y -509.543, Z 2.250, A 0.0000, B 90.0000, C 0.0000} C_DIS  ; zone end corner 1
+  $VEL.CP = 0.01200
+  LIN {X 578.357, Y -540.400, Z 2.250, A 0.0000, B 90.0000, C 0.0000} C_DIS  ; zone start corner 2
+  $VEL.CP = 0.01020
+  LIN {X 578.357, Y -546.400, Z 2.250, A 0.0000, B 90.0000, C 0.0000} C_DIS  ; corner 2: r 0.85, v 10.20 mm/s
+  LIN {X 584.357, Y -546.400, Z 2.250, A 0.0000, B 90.0000, C 0.0000} C_DIS  ; zone end corner 2
+  $VEL.CP = 0.01200
+  LIN {X 658.071, Y -546.400, Z 2.250, A 0.0000, B 90.0000, C 0.0000} C_DIS  ; zone start corner 3
+  $VEL.CP = 0.01020
+  LIN {X 664.071, Y -546.400, Z 2.250, A 0.0000, B 90.0000, C 0.0000} C_DIS  ; corner 3: r 0.85, v 10.20 mm/s
+  LIN {X 664.071, Y -540.400, Z 2.250, A 0.0000, B 90.0000, C 0.0000} C_DIS  ; zone end corner 3
+  $VEL.CP = 0.01200
+  LIN {X 664.071, Y -509.543, Z 2.250, A 0.0000, B 90.0000, C 0.0000} C_DIS  ; zone start corner 4
+  $VEL.CP = 0.01020
+  LIN {X 664.071, Y -503.543, Z 2.250, A 0.0000, B 90.0000, C 0.0000} C_DIS  ; corner 4: r 0.85, v 10.20 mm/s
+  LIN {X 658.071, Y -503.543, Z 2.250, A 0.0000, B 90.0000, C 0.0000} C_DIS  ; zone end corner 4
+  $VEL.CP = 0.01200
+  LIN {X 627.214, Y -503.543, Z 2.250, A 0.0000, B 90.0000, C 0.0000} C_DIS  ; zone start corner 5
+  $VEL.CP = 0.01800
+  LIN {X 621.214, Y -503.543, Z 2.250, A 0.0000, B 90.0000, C 0.0000} C_DIS  ; corner 5: r 1.5, v 18.00 mm/s
+  LIN {X 621.214, Y -497.543, Z 2.250, A 0.0000, B 90.0000, C 0.0000} C_DIS  ; zone end corner 5
+  $VEL.CP = 0.01200
+  LIN {X 621.214, Y -466.686, Z 2.250, A 0.0000, B 90.0000, C 0.0000} C_DIS  ; zone start corner 6
+  $VEL.CP = 0.01800
+  LIN {X 621.214, Y -460.686, Z 2.250, A 0.0000, B 90.0000, C 0.0000} C_DIS  ; corner 6: r 1.5, v 18.00 mm/s
+  LIN {X 627.214, Y -460.686, Z 2.250, A 0.0000, B 90.0000, C 0.0000} C_DIS  ; zone end corner 6
+  $VEL.CP = 0.01200
+  LIN {X 658.071, Y -460.686, Z 2.250, A 0.0000, B 90.0000, C 0.0000} C_DIS  ; zone start corner 7
+  $VEL.CP = 0.01200
+  LIN {X 664.071, Y -460.686, Z 2.250, A 0.0000, B 90.0000, C 0.0000} C_DIS  ; corner 7: r 1, v 12.00 mm/s
+  LIN {X 664.071, Y -454.686, Z 2.250, A 0.0000, B 90.0000, C 0.0000} C_DIS  ; zone end corner 7
+  $VEL.CP = 0.01200
+  LIN {X 664.071, Y -423.829, Z 2.250, A 0.0000, B 90.0000, C 0.0000} C_DIS  ; zone start corner 8
+  $VEL.CP = 0.01200
+  LIN {X 664.071, Y -417.829, Z 2.250, A 0.0000, B 90.0000, C 0.0000} C_DIS  ; corner 8: r 1, v 12.00 mm/s
+  LIN {X 658.071, Y -417.829, Z 2.250, A 0.0000, B 90.0000, C 0.0000} C_DIS  ; zone end corner 8
+  $VEL.CP = 0.01200
+  LIN {X 584.357, Y -417.829, Z 2.250, A 0.0000, B 90.0000, C 0.0000} C_DIS  ; zone start corner 9
+  $VEL.CP = 0.00600
+  LIN {X 578.357, Y -417.829, Z 2.250, A 0.0000, B 90.0000, C 0.0000} C_DIS  ; corner 9: r 0.5, v 6.00 mm/s
+  LIN {X 578.357, Y -423.829, Z 2.250, A 0.0000, B 90.0000, C 0.0000} C_DIS  ; zone end corner 9
+  $VEL.CP = 0.01200
+  LIN {X 578.357, Y -454.686, Z 2.250, A 0.0000, B 90.0000, C 0.0000} C_DIS  ; zone start corner 10
+  $VEL.CP = 0.01020
+  LIN {X 578.357, Y -460.686, Z 2.250, A 0.0000, B 90.0000, C 0.0000} C_DIS  ; corner 10: r 0.85, v 10.20 mm/s
+  LIN {X 572.357, Y -460.686, Z 2.250, A 0.0000, B 90.0000, C 0.0000} C_DIS  ; zone end corner 10
+  $VEL.CP = 0.01200
+  LIN {X 541.500, Y -460.686, Z 2.250, A 0.0000, B 90.0000, C 0.0000} C_DIS  ; zone start corner 11
+  $VEL.CP = 0.01560
+  LIN {X 535.500, Y -460.686, Z 2.250, A 0.0000, B 90.0000, C 0.0000} C_DIS  ; corner 11: r 1.3, v 15.60 mm/s
+  LIN {X 535.500, Y -454.686, Z 2.250, A 0.0000, B 90.0000, C 0.0000} C_DIS  ; zone end corner 11
+  $VEL.CP = 0.01200
+  LIN {X 535.500, Y -380.971, Z 2.250, A 0.0000, B 90.0000, C 0.0000} C_DIS  ; zone start corner 12
+  $VEL.CP = 0.01020
+  LIN {X 535.500, Y -374.971, Z 2.250, A 0.0000, B 90.0000, C 0.0000} C_DIS  ; corner 12: r 0.85, v 10.20 mm/s
+  LIN {X 541.500, Y -374.971, Z 2.250, A 0.0000, B 90.0000, C 0.0000} C_DIS  ; zone end corner 12
+  $VEL.CP = 0.01200
+  LIN {X 572.357, Y -374.971, Z 2.250, A 0.0000, B 90.0000, C 0.0000} C_DIS  ; zone start corner 13
+  $VEL.CP = 0.01200
+  LIN {X 578.357, Y -374.971, Z 2.250, A 0.0000, B 90.0000, C 0.0000} C_DIS  ; corner 13: r 1, v 12.00 mm/s
+  LIN {X 578.357, Y -368.971, Z 2.250, A 0.0000, B 90.0000, C 0.0000} C_DIS  ; zone end corner 13
+  $VEL.CP = 0.01200
+  LIN {X 578.357, Y -338.114, Z 2.250, A 0.0000, B 90.0000, C 0.0000} C_DIS  ; zone start corner 14
+  $VEL.CP = 0.00600
+  LIN {X 578.357, Y -332.114, Z 2.250, A 0.0000, B 90.0000, C 0.0000} C_DIS  ; corner 14: r 0.5, v 6.00 mm/s
+  LIN {X 572.357, Y -332.114, Z 2.250, A 0.0000, B 90.0000, C 0.0000} C_DIS  ; zone end corner 14
+  $VEL.CP = 0.01200
+  LIN {X 541.500, Y -332.114, Z 2.250, A 0.0000, B 90.0000, C 0.0000} C_DIS  ; zone start corner 15
+  $VEL.CP = 0.01800
+  LIN {X 535.500, Y -332.114, Z 2.250, A 0.0000, B 90.0000, C 0.0000} C_DIS  ; corner 15: r 1.5, v 18.00 mm/s
+  LIN {X 535.500, Y -326.114, Z 2.250, A 0.0000, B 90.0000, C 0.0000} C_DIS  ; zone end corner 15
+  $VEL.CP = 0.01200
+  LIN {X 535.500, Y -252.400, Z 2.250, A 0.0000, B 90.0000, C 0.0000} C_DIS  ; zone start corner 16
+  $VEL.CP = 0.00840
+  LIN {X 535.500, Y -246.400, Z 2.250, A 0.0000, B 90.0000, C 0.0000} C_DIS  ; corner 16: r 0.7, v 8.40 mm/s
+  LIN {X 541.500, Y -246.400, Z 2.250, A 0.0000, B 90.0000, C 0.0000} C_DIS  ; zone end corner 16
+  $VEL.CP = 0.01200
+  LIN {X 572.357, Y -246.400, Z 2.250, A 0.0000, B 90.0000, C 0.0000} C_DIS  ; zone start corner 17
+  $VEL.CP = 0.00600
+  LIN {X 578.357, Y -246.400, Z 2.250, A 0.0000, B 90.0000, C 0.0000} C_DIS  ; corner 17: r 0.5, v 6.00 mm/s
+  LIN {X 578.357, Y -252.400, Z 2.250, A 0.0000, B 90.0000, C 0.0000} C_DIS  ; zone end corner 17
+  $VEL.CP = 0.01200
+  LIN {X 578.357, Y -283.257, Z 2.250, A 0.0000, B 90.0000, C 0.0000} C_DIS  ; zone start corner 18
+  $VEL.CP = 0.01800
+  LIN {X 578.357, Y -289.257, Z 2.250, A 0.0000, B 90.0000, C 0.0000} C_DIS  ; corner 18: r 1.5, v 18.00 mm/s
+  LIN {X 584.357, Y -289.257, Z 2.250, A 0.0000, B 90.0000, C 0.0000} C_DIS  ; zone end corner 18
+  $VEL.CP = 0.01200
+  LIN {X 615.214, Y -289.257, Z 2.250, A 0.0000, B 90.0000, C 0.0000} C_DIS  ; zone start corner 19
+  $VEL.CP = 0.00600
+  LIN {X 621.214, Y -289.257, Z 2.250, A 0.0000, B 90.0000, C 0.0000} C_DIS  ; corner 19: r 0.5, v 6.00 mm/s
+  LIN {X 621.214, Y -283.257, Z 2.250, A 0.0000, B 90.0000, C 0.0000} C_DIS  ; zone end corner 19
+  $VEL.CP = 0.01200
+  LIN {X 621.214, Y -252.400, Z 2.250, A 0.0000, B 90.0000, C 0.0000} C_DIS  ; zone start corner 20
+  $VEL.CP = 0.01200
+  LIN {X 621.214, Y -246.400, Z 2.250, A 0.0000, B 90.0000, C 0.0000} C_DIS  ; corner 20: r 1, v 12.00 mm/s
+  LIN {X 627.214, Y -246.400, Z 2.250, A 0.0000, B 90.0000, C 0.0000} C_DIS  ; zone end corner 20
+  $VEL.CP = 0.01200
+  LIN {X 658.071, Y -246.400, Z 2.250, A 0.0000, B 90.0000, C 0.0000} C_DIS  ; zone start corner 21
+  $VEL.CP = 0.01560
+  LIN {X 664.071, Y -246.400, Z 2.250, A 0.0000, B 90.0000, C 0.0000} C_DIS  ; corner 21: r 1.3, v 15.60 mm/s
+  LIN {X 664.071, Y -252.400, Z 2.250, A 0.0000, B 90.0000, C 0.0000} C_DIS  ; zone end corner 21
+  $VEL.CP = 0.01200
+  LIN {X 664.071, Y -326.114, Z 2.250, A 0.0000, B 90.0000, C 0.0000} C_DIS  ; zone start corner 22
+  $VEL.CP = 0.01560
+  LIN {X 664.071, Y -332.114, Z 2.250, A 0.0000, B 90.0000, C 0.0000} C_DIS  ; corner 22: r 1.3, v 15.60 mm/s
+  LIN {X 658.071, Y -332.114, Z 2.250, A 0.0000, B 90.0000, C 0.0000} C_DIS  ; zone end corner 22
+  $VEL.CP = 0.01200
+  LIN {X 627.214, Y -332.114, Z 2.250, A 0.0000, B 90.0000, C 0.0000} C_DIS  ; zone start corner 23
+  $VEL.CP = 0.00840
+  LIN {X 621.214, Y -332.114, Z 2.250, A 0.0000, B 90.0000, C 0.0000} C_DIS  ; corner 23: r 0.7, v 8.40 mm/s
+  LIN {X 621.214, Y -338.114, Z 2.250, A 0.0000, B 90.0000, C 0.0000} C_DIS  ; zone end corner 23
+  $VEL.CP = 0.01200
+  LIN {X 621.214, Y -368.971, Z 2.250, A 0.0000, B 90.0000, C 0.0000} C_DIS  ; zone start corner 24
+  $VEL.CP = 0.01200
+  LIN {X 621.214, Y -374.971, Z 2.250, A 0.0000, B 90.0000, C 0.0000} C_DIS  ; corner 24: r 1, v 12.00 mm/s
+  LIN {X 627.214, Y -374.971, Z 2.250, A 0.0000, B 90.0000, C 0.0000} C_DIS  ; zone end corner 24
+  $VEL.CP = 0.01200
+  LIN {X 743.786, Y -374.971, Z 2.250, A 0.0000, B 90.0000, C 0.0000} C_DIS  ; zone start corner 25
+  $VEL.CP = 0.00600
+  LIN {X 749.786, Y -374.971, Z 2.250, A 0.0000, B 90.0000, C 0.0000} C_DIS  ; corner 25: r 0.5, v 6.00 mm/s
+  LIN {X 749.786, Y -368.971, Z 2.250, A 0.0000, B 90.0000, C 0.0000} C_DIS  ; zone end corner 25
+  $VEL.CP = 0.01200
+  LIN {X 749.786, Y -338.114, Z 2.250, A 0.0000, B 90.0000, C 0.0000} C_DIS  ; zone start corner 26
+  $VEL.CP = 0.01020
+  LIN {X 749.786, Y -332.114, Z 2.250, A 0.0000, B 90.0000, C 0.0000} C_DIS  ; corner 26: r 0.85, v 10.20 mm/s
+  LIN {X 743.786, Y -332.114, Z 2.250, A 0.0000, B 90.0000, C 0.0000} C_DIS  ; zone end corner 26
+  $VEL.CP = 0.01200
+  LIN {X 712.929, Y -332.114, Z 2.250, A 0.0000, B 90.0000, C 0.0000} C_DIS  ; zone start corner 27
+  $VEL.CP = 0.00840
+  LIN {X 706.929, Y -332.114, Z 2.250, A 0.0000, B 90.0000, C 0.0000} C_DIS  ; corner 27: r 0.7, v 8.40 mm/s
+  LIN {X 706.929, Y -326.114, Z 2.250, A 0.0000, B 90.0000, C 0.0000} C_DIS  ; zone end corner 27
+  $VEL.CP = 0.01200
+  LIN {X 706.929, Y -252.400, Z 2.250, A 0.0000, B 90.0000, C 0.0000} C_DIS  ; zone start corner 28
+  $VEL.CP = 0.01380
+  LIN {X 706.929, Y -246.400, Z 2.250, A 0.0000, B 90.0000, C 0.0000} C_DIS  ; corner 28: r 1.15, v 13.80 mm/s
+  LIN {X 712.929, Y -246.400, Z 2.250, A 0.0000, B 90.0000, C 0.0000} C_DIS  ; zone end corner 28
+  $VEL.CP = 0.01200
+  LIN {X 743.786, Y -246.400, Z 2.250, A 0.0000, B 90.0000, C 0.0000} C_DIS  ; zone start corner 29
+  $VEL.CP = 0.01380
+  LIN {X 749.786, Y -246.400, Z 2.250, A 0.0000, B 90.0000, C 0.0000} C_DIS  ; corner 29: r 1.15, v 13.80 mm/s
+  LIN {X 749.786, Y -252.400, Z 2.250, A 0.0000, B 90.0000, C 0.0000} C_DIS  ; zone end corner 29
+  $VEL.CP = 0.01200
+  LIN {X 749.786, Y -283.257, Z 2.250, A 0.0000, B 90.0000, C 0.0000} C_DIS  ; zone start corner 30
+  $VEL.CP = 0.00600
+  LIN {X 749.786, Y -289.257, Z 2.250, A 0.0000, B 90.0000, C 0.0000} C_DIS  ; corner 30: r 0.5, v 6.00 mm/s
+  LIN {X 755.786, Y -289.257, Z 2.250, A 0.0000, B 90.0000, C 0.0000} C_DIS  ; zone end corner 30
+  $VEL.CP = 0.01200
+  LIN {X 786.643, Y -289.257, Z 2.250, A 0.0000, B 90.0000, C 0.0000} C_DIS  ; zone start corner 31
+  $VEL.CP = 0.01380
+  LIN {X 792.643, Y -289.257, Z 2.250, A 0.0000, B 90.0000, C 0.0000} C_DIS  ; corner 31: r 1.15, v 13.80 mm/s
+  LIN {X 792.643, Y -283.257, Z 2.250, A 0.0000, B 90.0000, C 0.0000} C_DIS  ; zone end corner 31
+  $VEL.CP = 0.01200
+  LIN {X 792.643, Y -252.400, Z 2.250, A 0.0000, B 90.0000, C 0.0000} C_DIS  ; zone start corner 32
+  $VEL.CP = 0.00600
+  LIN {X 792.643, Y -246.400, Z 2.250, A 0.0000, B 90.0000, C 0.0000} C_DIS  ; corner 32: r 0.5, v 6.00 mm/s
+  LIN {X 798.643, Y -246.400, Z 2.250, A 0.0000, B 90.0000, C 0.0000} C_DIS  ; zone end corner 32
+  $VEL.CP = 0.01200
+  LIN {X 829.500, Y -246.400, Z 2.250, A 0.0000, B 90.0000, C 0.0000} C_DIS  ; zone start corner 33
+  $VEL.CP = 0.01560
+  LIN {X 835.500, Y -246.400, Z 2.250, A 0.0000, B 90.0000, C 0.0000} C_DIS  ; corner 33: r 1.3, v 15.60 mm/s
+  LIN {X 835.500, Y -252.400, Z 2.250, A 0.0000, B 90.0000, C 0.0000} C_DIS  ; zone end corner 33
+  $VEL.CP = 0.01200
+  LIN {X 835.500, Y -326.114, Z 2.250, A 0.0000, B 90.0000, C 0.0000} C_DIS  ; zone start corner 34
+  $VEL.CP = 0.00840
+  LIN {X 835.500, Y -332.114, Z 2.250, A 0.0000, B 90.0000, C 0.0000} C_DIS  ; corner 34: r 0.7, v 8.40 mm/s
+  LIN {X 829.500, Y -332.114, Z 2.250, A 0.0000, B 90.0000, C 0.0000} C_DIS  ; zone end corner 34
+  $VEL.CP = 0.01200
+  LIN {X 798.643, Y -332.114, Z 2.250, A 0.0000, B 90.0000, C 0.0000} C_DIS  ; zone start corner 35
+  $VEL.CP = 0.01560
+  LIN {X 792.643, Y -332.114, Z 2.250, A 0.0000, B 90.0000, C 0.0000} C_DIS  ; corner 35: r 1.3, v 15.60 mm/s
+  LIN {X 792.643, Y -338.114, Z 2.250, A 0.0000, B 90.0000, C 0.0000} C_DIS  ; zone end corner 35
+  $VEL.CP = 0.01200
+  LIN {X 792.643, Y -368.971, Z 2.250, A 0.0000, B 90.0000, C 0.0000} C_DIS  ; zone start corner 36
+  $VEL.CP = 0.01200
+  LIN {X 792.643, Y -374.971, Z 2.250, A 0.0000, B 90.0000, C 0.0000} C_DIS  ; corner 36: r 1, v 12.00 mm/s
+  LIN {X 798.643, Y -374.971, Z 2.250, A 0.0000, B 90.0000, C 0.0000} C_DIS  ; zone end corner 36
+  $VEL.CP = 0.01200
+  LIN {X 829.500, Y -374.971, Z 2.250, A 0.0000, B 90.0000, C 0.0000} C_DIS  ; zone start corner 37
+  $VEL.CP = 0.01800
+  LIN {X 835.500, Y -374.971, Z 2.250, A 0.0000, B 90.0000, C 0.0000} C_DIS  ; corner 37: r 1.5, v 18.00 mm/s
+  LIN {X 835.500, Y -380.971, Z 2.250, A 0.0000, B 90.0000, C 0.0000} C_DIS  ; zone end corner 37
+  $VEL.CP = 0.01200
+  LIN {X 835.500, Y -454.686, Z 2.250, A 0.0000, B 90.0000, C 0.0000} C_DIS  ; zone start corner 38
+  $VEL.CP = 0.01020
+  LIN {X 835.500, Y -460.686, Z 2.250, A 0.0000, B 90.0000, C 0.0000} C_DIS  ; corner 38: r 0.85, v 10.20 mm/s
+  LIN {X 829.500, Y -460.686, Z 2.250, A 0.0000, B 90.0000, C 0.0000} C_DIS  ; zone end corner 38
+  $VEL.CP = 0.01200
+  LIN {X 798.643, Y -460.686, Z 2.250, A 0.0000, B 90.0000, C 0.0000} C_DIS  ; zone start corner 39
+  $VEL.CP = 0.01560
+  LIN {X 792.643, Y -460.686, Z 2.250, A 0.0000, B 90.0000, C 0.0000} C_DIS  ; corner 39: r 1.3, v 15.60 mm/s
+  LIN {X 792.643, Y -454.686, Z 2.250, A 0.0000, B 90.0000, C 0.0000} C_DIS  ; zone end corner 39
+  $VEL.CP = 0.01200
+  LIN {X 792.643, Y -423.829, Z 2.250, A 0.0000, B 90.0000, C 0.0000} C_DIS  ; zone start corner 40
+  $VEL.CP = 0.01200
+  LIN {X 792.643, Y -417.829, Z 2.250, A 0.0000, B 90.0000, C 0.0000} C_DIS  ; corner 40: r 1, v 12.00 mm/s
+  LIN {X 786.643, Y -417.829, Z 2.250, A 0.0000, B 90.0000, C 0.0000} C_DIS  ; zone end corner 40
+  $VEL.CP = 0.01200
+  LIN {X 712.929, Y -417.829, Z 2.250, A 0.0000, B 90.0000, C 0.0000} C_DIS  ; zone start corner 41
+  $VEL.CP = 0.00840
+  LIN {X 706.929, Y -417.829, Z 2.250, A 0.0000, B 90.0000, C 0.0000} C_DIS  ; corner 41: r 0.7, v 8.40 mm/s
+  LIN {X 706.929, Y -423.829, Z 2.250, A 0.0000, B 90.0000, C 0.0000} C_DIS  ; zone end corner 41
+  $VEL.CP = 0.01200
+  LIN {X 706.929, Y -454.686, Z 2.250, A 0.0000, B 90.0000, C 0.0000} C_DIS  ; zone start corner 42
+  $VEL.CP = 0.01560
+  LIN {X 706.929, Y -460.686, Z 2.250, A 0.0000, B 90.0000, C 0.0000} C_DIS  ; corner 42: r 1.3, v 15.60 mm/s
+  LIN {X 712.929, Y -460.686, Z 2.250, A 0.0000, B 90.0000, C 0.0000} C_DIS  ; zone end corner 42
+  $VEL.CP = 0.01200
+  LIN {X 743.786, Y -460.686, Z 2.250, A 0.0000, B 90.0000, C 0.0000} C_DIS  ; zone start corner 43
+  $VEL.CP = 0.00840
+  LIN {X 749.786, Y -460.686, Z 2.250, A 0.0000, B 90.0000, C 0.0000} C_DIS  ; corner 43: r 0.7, v 8.40 mm/s
+  LIN {X 749.786, Y -466.686, Z 2.250, A 0.0000, B 90.0000, C 0.0000} C_DIS  ; zone end corner 43
+  $VEL.CP = 0.01200
+  LIN {X 749.786, Y -497.543, Z 2.250, A 0.0000, B 90.0000, C 0.0000} C_DIS  ; zone start corner 44
+  $VEL.CP = 0.01380
+  LIN {X 749.786, Y -503.543, Z 2.250, A 0.0000, B 90.0000, C 0.0000} C_DIS  ; corner 44: r 1.15, v 13.80 mm/s
+  LIN {X 743.786, Y -503.543, Z 2.250, A 0.0000, B 90.0000, C 0.0000} C_DIS  ; zone end corner 44
+  $VEL.CP = 0.01200
+  LIN {X 712.929, Y -503.543, Z 2.250, A 0.0000, B 90.0000, C 0.0000} C_DIS  ; zone start corner 45
+  $VEL.CP = 0.01800
+  LIN {X 706.929, Y -503.543, Z 2.250, A 0.0000, B 90.0000, C 0.0000} C_DIS  ; corner 45: r 1.5, v 18.00 mm/s
+  LIN {X 706.929, Y -509.543, Z 2.250, A 0.0000, B 90.0000, C 0.0000} C_DIS  ; zone end corner 45
+  $VEL.CP = 0.01200
+  LIN {X 706.929, Y -540.400, Z 2.250, A 0.0000, B 90.0000, C 0.0000} C_DIS  ; zone start corner 46
+  $VEL.CP = 0.01380
+  LIN {X 706.929, Y -546.400, Z 2.250, A 0.0000, B 90.0000, C 0.0000} C_DIS  ; corner 46: r 1.15, v 13.80 mm/s
+  LIN {X 712.929, Y -546.400, Z 2.250, A 0.0000, B 90.0000, C 0.0000} C_DIS  ; zone end corner 46
+  $VEL.CP = 0.01200
+  LIN {X 786.643, Y -546.400, Z 2.250, A 0.0000, B 90.0000, C 0.0000} C_DIS  ; zone start corner 47
+  $VEL.CP = 0.01380
+  LIN {X 792.643, Y -546.400, Z 2.250, A 0.0000, B 90.0000, C 0.0000} C_DIS  ; corner 47: r 1.15, v 13.80 mm/s
+  LIN {X 792.643, Y -540.400, Z 2.250, A 0.0000, B 90.0000, C 0.0000} C_DIS  ; zone end corner 47
+  $VEL.CP = 0.01200
+  LIN {X 792.643, Y -509.543, Z 2.250, A 0.0000, B 90.0000, C 0.0000} C_DIS  ; zone start corner 48
+  $VEL.CP = 0.01800
+  LIN {X 792.643, Y -503.543, Z 2.250, A 0.0000, B 90.0000, C 0.0000} C_DIS  ; corner 48: r 1.5, v 18.00 mm/s
+  LIN {X 798.643, Y -503.543, Z 2.250, A 0.0000, B 90.0000, C 0.0000} C_DIS  ; zone end corner 48
+  $VEL.CP = 0.01200
+  LIN {X 829.500, Y -503.543, Z 2.250, A 0.0000, B 90.0000, C 0.0000} C_DIS  ; zone start corner 49
+  $VEL.CP = 0.01200
+  LIN {X 835.500, Y -503.543, Z 2.250, A 0.0000, B 90.0000, C 0.0000} C_DIS  ; corner 49: r 1, v 12.00 mm/s
+  LIN {X 835.500, Y -509.543, Z 2.250, A 0.0000, B 90.0000, C 0.0000} C_DIS  ; zone end corner 49
+  $VEL.CP = 0.01200
+  LIN {X 835.500, Y -546.400, Z 2.250, A 0.0000, B 90.0000, C 0.0000}  ; end (exact stop)
+  LIN {X 835.500, Y -546.400, Z 22.250, A 0.0000, B 90.0000, C 0.0000}
+END

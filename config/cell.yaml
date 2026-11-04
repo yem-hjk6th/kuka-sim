@@ -70,6 +70,10 @@ obstacles:                                 # toggle clamps holding the bed; posi
     status: estimated
   # hopper, hose, cables, camera cage: unknown, to be added
 
+keep_out: []                               # optional site keep-out boxes, checked like the clamps (tip included).
+  # Empty on purpose: site keep-outs are added to a LOCAL copy of this file and never committed.
+  # Entry format (BASE 0, mm): {name: <str>, x: [lo, hi], y: [lo, hi], z: [lo, hi], clearance_mm: <optional>}
+
 process:
   print_speed_mm_s: 12
   nozzle_diameter_mm: 3
