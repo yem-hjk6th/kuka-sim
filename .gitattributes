@@ -1,0 +1,2 @@
+# K-2: KRL programs keep LF line endings on every platform (also written with newline="\n")
+*.src text eol=lf

@@ -23,6 +23,12 @@ from kukasim.kinematics import Robot  # noqa: E402
 from kukasim.krl import write_krl  # noqa: E402
 from kukasim.planner import Planner, diagnose, turn_window  # noqa: E402
 from kukasim.toolpaths import SURFACES, make_toolpath  # noqa: E402
+from kukasim.transit import TransitPlanner  # noqa: E402
+
+
+def export_summary(rep):
+    """The parts of a KRL export report that go into summary.json / RESULTS.md."""
+    return {k: rep[k] for k in ("params", "transits", "flags", "before_direct_ptp")}
 
 
 def summarize(res, diag):
@@ -61,6 +67,7 @@ def main():
     cfg = load_config()
     robot = Robot.from_config(cfg)
     planner = Planner(robot, cfg)
+    tpl = TransitPlanner(robot, cfg, planner.coll, planner.hard_limits)
     tilt0 = cfg.planner["toolpath"]["max_tilt_deg"]
     sweep = cfg.planner["toolpath"]["tilt_sweep_deg"]
     if args.quick:
@@ -80,10 +87,12 @@ def main():
         outputs.plot_joints(d / "joints.png", robot, res, title)
         outputs.plot_margins(d / "margins.png", res, cfg, title)
         outputs.plot_feasibility(d / "feasibility.png", res, title)
-        write_krl(d / f"{name}.src", robot, res, rows, cfg, name)
+        rep = write_krl(d / f"{name}.src", robot, res, rows, cfg, name, tpl)
+        (d / "export_report.json").write_text(json.dumps(rep, indent=1, default=float) + "\n")
         if not args.no_anim:
             outputs.animate(d / "animation.gif", planner.coll, res, name)
         summary["surfaces"][name] = summarize(res, diag)
+        summary["surfaces"][name]["export"] = export_summary(rep)
         print("   ", {k: summary["surfaces"][name][k] for k in
                       ("planned_pct", "segments", "no_state", "breaks", "runtime_s")}, flush=True)
 
