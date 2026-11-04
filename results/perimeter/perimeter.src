@@ -4,17 +4,43 @@
 ; toolpath: perimeter, max tilt 30 deg, 1411 points, 786 planned
 ; TOOL 3 assumed = {X 225.55, Y -0.6, Z 72.83, A 0.0, B 0.0, C 0.0} (copied, to be re-confirmed); BASE 0
 ; Orientation is A/B/C (Rz(A) Ry(B) Rx(C)); B ~ 90 is an Euler singularity, only A - C matters there.
-; LIN points carry no S/T; each continuous segment starts with an axis-specific PTP (E6AXIS).
+; LIN points carry no S/T; configuration changes happen only in PTP moves given as joint values (E6AXIS).
 ; Joint values for every point are in trajectory.csv. Controller blending (C_DIS) is not simulated.
+; Transits: LIN retract along the nozzle axis (tool -X) to >= 30 mm above the bed top,
+;   and >= 15 mm above the highest Z printed so far,
+;   PTP (lifted to 80, 120, 180 mm if the low one collides), LIN approach.
+;   Every transit was sampled (PTP in joint space) and checked against the bed, clamps and floor in simulation.
+; $VEL_AXIS = 5 %, $ACC_AXIS = 10 % on all axes; before each transit PTP
+;   $VEL_AXIS is lowered so its peak TCP speed is <= 80 mm/s (= 0.8 x 100).
+;   TCP speeds below are a MODEL ESTIMATE (axes at <= $VEL_AXIS of the unverified URDF velocities,
+;   assumed accelerations), not controller output. Clearances: retract / approach with the tip exempt
+;   from the bed (they start on the print), PTP and lift / lower with the tip included.
+; The first PTP comes from the unknown current robot pose and is NOT checked.
+; transit 0->1: PTP at Z 81.0, min clearance per move (mm): retract 1.4, lift 15.4, transit 17.1, lower 15.3, approach 1.3; bed distance 27.0 mm, $VEL_AXIS 4 %, peak TCP 76 mm/s (model)
+; transit 1->2: PTP at Z 81.0, min clearance per move (mm): retract 0.2, lift 14.6, transit 19.0, lower 15.2, approach 1.1; bed distance 27.0 mm, $VEL_AXIS 5 %, peak TCP 64 mm/s (model)
+; FLAGS: none
 DEF perimeter()
   $BASE = $NULLFRAME
   $TOOL = TOOL_DATA[3]
   $VEL.CP = 0.012
   $APO.CDIS = 0.5
   $ORI_TYPE = #VAR
+  $VEL_AXIS[1] = 5
+  $VEL_AXIS[2] = 5
+  $VEL_AXIS[3] = 5
+  $VEL_AXIS[4] = 5
+  $VEL_AXIS[5] = 5
+  $VEL_AXIS[6] = 5
+  $ACC_AXIS[1] = 10
+  $ACC_AXIS[2] = 10
+  $ACC_AXIS[3] = 10
+  $ACC_AXIS[4] = 10
+  $ACC_AXIS[5] = 10
+  $ACC_AXIS[6] = 10
+  ; approach above the start of segment 0 (Z 30.9)
+  PTP {A1 35.8927, A2 -41.1213, A3 126.9222, A4 105.8522, A5 -91.1489, A6 -4.0391} ; from the current pose: NOT checked
+  LIN {X 469.010, Y -145.900, Z 2.250, A 70.0000, B 90.0000, C 0.0000}
   ; segment 0: points 14..301
-  PTP {A1 35.8927, A2 -37.6130, A3 125.8429, A4 105.8855, A5 -90.4847, A6 -1.7025}
-  LIN {X 469.010, Y -145.900, Z 2.250, A 70.0000, B 90.0000, C 0.0000} C_DIS
   LIN {X 470.511, Y -145.900, Z 2.250, A 70.0000, B 90.0000, C 0.0000} C_DIS
   LIN {X 472.011, Y -145.900, Z 2.250, A 70.0000, B 90.0000, C 0.0000} C_DIS
   LIN {X 473.512, Y -145.900, Z 2.250, A 70.0000, B 90.0000, C 0.0000} C_DIS
@@ -301,12 +327,26 @@ DEF perimeter()
   LIN {X 895.211, Y -145.900, Z 2.250, A 50.0000, B 90.0000, C 0.0000} C_DIS
   LIN {X 896.712, Y -145.900, Z 2.250, A 50.0000, B 90.0000, C 0.0000} C_DIS
   LIN {X 898.213, Y -145.900, Z 2.250, A 50.0000, B 90.0000, C 0.0000} C_DIS
-  LIN {X 899.713, Y -145.900, Z 2.250, A 50.0000, B 90.0000, C 0.0000} C_DIS
-  ; ---- segment break before point 428: reconfiguration NOT planned or collision-checked
+  LIN {X 899.713, Y -145.900, Z 2.250, A 50.0000, B 90.0000, C 0.0000}
+  ; ---- transit 0->1: checked in simulation, PTP at Z 81.0
   HALT
+  ; LIN retract
+  LIN {X 899.713, Y -145.900, Z 30.950, A 50.0000, B 90.0000, C 0.0000}
+  ; LIN lift
+  LIN {X 899.713, Y -145.900, Z 80.950, A 50.0000, B 90.0000, C 0.0000}
+  ; PTP transit
+  $VEL_AXIS[1] = 4
+  $VEL_AXIS[2] = 4
+  $VEL_AXIS[3] = 4
+  $VEL_AXIS[4] = 4
+  $VEL_AXIS[5] = 4
+  $VEL_AXIS[6] = 4
+  PTP {A1 6.9178, A2 -26.0360, A3 69.9679, A4 -66.6283, A5 -67.6197, A6 41.3820}
+  ; LIN lower
+  LIN {X 978.000, Y -258.204, Z 30.950, A -65.0000, B 90.0000, C 0.0000}
+  ; LIN approach
+  LIN {X 978.000, Y -258.204, Z 2.250, A -65.0000, B 90.0000, C 0.0000}
   ; segment 1: points 428..643
-  PTP {A1 6.9178, A2 -20.0218, A3 67.6977, A4 114.7271, A5 69.1460, A6 -142.2957}
-  LIN {X 978.000, Y -258.204, Z 2.250, A -65.0000, B 90.0000, C 0.0000} C_DIS
   LIN {X 978.000, Y -259.704, Z 2.250, A -65.0000, B 90.0000, C 0.0000} C_DIS
   LIN {X 978.000, Y -261.205, Z 2.250, A -65.0000, B 90.0000, C 0.0000} C_DIS
   LIN {X 978.000, Y -262.706, Z 2.250, A -65.0000, B 90.0000, C 0.0000} C_DIS
@@ -521,12 +561,26 @@ DEF perimeter()
   LIN {X 978.000, Y -576.354, Z 2.250, A -65.0000, B 90.0000, C 0.0000} C_DIS
   LIN {X 978.000, Y -577.855, Z 2.250, A -65.0000, B 90.0000, C 0.0000} C_DIS
   LIN {X 978.000, Y -579.355, Z 2.250, A -65.0000, B 90.0000, C 0.0000} C_DIS
-  LIN {X 978.000, Y -580.856, Z 2.250, A -65.0000, B 90.0000, C 0.0000} C_DIS
-  ; ---- segment break before point 763: reconfiguration NOT planned or collision-checked
+  LIN {X 978.000, Y -580.856, Z 2.250, A -65.0000, B 90.0000, C 0.0000}
+  ; ---- transit 1->2: checked in simulation, PTP at Z 81.0
   HALT
+  ; LIN retract
+  LIN {X 978.000, Y -580.856, Z 30.950, A -65.0000, B 90.0000, C 0.0000}
+  ; LIN lift
+  LIN {X 978.000, Y -580.856, Z 80.950, A -65.0000, B 90.0000, C 0.0000}
+  ; PTP transit
+  $VEL_AXIS[1] = 5
+  $VEL_AXIS[2] = 5
+  $VEL_AXIS[3] = 5
+  $VEL_AXIS[4] = 5
+  $VEL_AXIS[5] = 5
+  $VEL_AXIS[6] = 5
+  PTP {A1 40.6992, A2 -21.3346, A3 59.3169, A4 38.0250, A5 -44.7460, A6 -29.0476}
+  ; LIN lower
+  LIN {X 890.959, Y -673.900, Z 30.950, A -15.0000, B 90.0000, C 0.0000}
+  ; LIN approach
+  LIN {X 890.959, Y -673.900, Z 2.250, A -15.0000, B 90.0000, C 0.0000}
   ; segment 2: points 763..1044
-  PTP {A1 40.6992, A2 -15.4522, A3 56.7924, A4 -143.9236, A5 47.4267, A6 153.7609}
-  LIN {X 890.959, Y -673.900, Z 2.250, A -15.0000, B 90.0000, C 0.0000} C_DIS
   LIN {X 889.458, Y -673.900, Z 2.250, A -15.0000, B 90.0000, C 0.0000} C_DIS
   LIN {X 887.957, Y -673.900, Z 2.250, A -15.0000, B 90.0000, C 0.0000} C_DIS
   LIN {X 886.457, Y -673.900, Z 2.250, A -15.0000, B 90.0000, C 0.0000} C_DIS
@@ -807,7 +861,9 @@ DEF perimeter()
   LIN {X 473.762, Y -673.900, Z 2.250, A -15.0000, B 90.0000, C 0.0000} C_DIS
   LIN {X 472.261, Y -673.900, Z 2.250, A -15.0000, B 90.0000, C 0.0000} C_DIS
   LIN {X 470.760, Y -673.900, Z 2.250, A -15.0000, B 90.0000, C 0.0000} C_DIS
-  LIN {X 469.260, Y -673.900, Z 2.250, A -15.0000, B 90.0000, C 0.0000} C_DIS
+  LIN {X 469.260, Y -673.900, Z 2.250, A -15.0000, B 90.0000, C 0.0000}
+  ; final retract to Z 30.9
+  LIN {X 469.260, Y -673.900, Z 30.950, A -15.0000, B 90.0000, C 0.0000}
   ; INFEASIBLE: points 0..13 have no feasible state (omitted)
   ; INFEASIBLE: points 302..427 have no feasible state (omitted)
   ; INFEASIBLE: points 644..762 have no feasible state (omitted)

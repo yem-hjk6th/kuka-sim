@@ -4,17 +4,41 @@
 ; toolpath: dome, max tilt 30 deg, 1380 points, 1380 planned
 ; TOOL 3 assumed = {X 225.55, Y -0.6, Z 72.83, A 0.0, B 0.0, C 0.0} (copied, to be re-confirmed); BASE 0
 ; Orientation is A/B/C (Rz(A) Ry(B) Rx(C)); B ~ 90 is an Euler singularity, only A - C matters there.
-; LIN points carry no S/T; each continuous segment starts with an axis-specific PTP (E6AXIS).
+; LIN points carry no S/T; configuration changes happen only in PTP moves given as joint values (E6AXIS).
 ; Joint values for every point are in trajectory.csv. Controller blending (C_DIS) is not simulated.
+; Transits: LIN retract along the nozzle axis (tool -X) to >= 30 mm above the bed top,
+;   and >= 15 mm above the highest Z printed so far,
+;   PTP (lifted to 80, 120, 180 mm if the low one collides), LIN approach.
+;   Every transit was sampled (PTP in joint space) and checked against the bed, clamps and floor in simulation.
+; $VEL_AXIS = 5 %, $ACC_AXIS = 10 % on all axes; before each transit PTP
+;   $VEL_AXIS is lowered so its peak TCP speed is <= 80 mm/s (= 0.8 x 100).
+;   TCP speeds below are a MODEL ESTIMATE (axes at <= $VEL_AXIS of the unverified URDF velocities,
+;   assumed accelerations), not controller output. Clearances: retract / approach with the tip exempt
+;   from the bed (they start on the print), PTP and lift / lower with the tip included.
+; The first PTP comes from the unknown current robot pose and is NOT checked.
+; FLAGS: none
 DEF dome()
   $BASE = $NULLFRAME
   $TOOL = TOOL_DATA[3]
   $VEL.CP = 0.012
   $APO.CDIS = 0.5
   $ORI_TYPE = #VAR
+  $VEL_AXIS[1] = 5
+  $VEL_AXIS[2] = 5
+  $VEL_AXIS[3] = 5
+  $VEL_AXIS[4] = 5
+  $VEL_AXIS[5] = 5
+  $VEL_AXIS[6] = 5
+  $ACC_AXIS[1] = 10
+  $ACC_AXIS[2] = 10
+  $ACC_AXIS[3] = 10
+  $ACC_AXIS[4] = 10
+  $ACC_AXIS[5] = 10
+  $ACC_AXIS[6] = 10
+  ; approach above the start of segment 0 (Z 30.9)
+  PTP {A1 30.7348, A2 -34.2466, A3 99.8391, A4 109.0206, A5 81.5875, A6 202.9958} ; from the current pose: NOT checked
+  LIN {X 593.000, Y -530.000, Z 10.950, A -100.0000, B 90.0000, C 0.0000}
   ; segment 0: points 0..1379
-  PTP {A1 30.7348, A2 -32.4036, A3 99.2256, A4 109.1883, A5 81.9899, A6 201.8219}
-  LIN {X 593.000, Y -530.000, Z 10.950, A -100.0000, B 90.0000, C 0.0000} C_DIS
   LIN {X 594.500, Y -530.000, Z 10.950, A -100.0000, B 90.0000, C 0.0000} C_DIS
   LIN {X 596.000, Y -530.000, Z 10.950, A -100.0000, B 90.0000, C 0.0000} C_DIS
   LIN {X 597.500, Y -530.000, Z 10.950, A -100.0000, B 90.0000, C 0.0000} C_DIS
@@ -1393,5 +1417,7 @@ DEF dome()
   LIN {X 828.500, Y -290.000, Z 10.950, A -90.0000, B 90.0000, C -130.0000} C_DIS
   LIN {X 830.000, Y -290.000, Z 10.950, A -90.0000, B 90.0000, C -130.0000} C_DIS
   LIN {X 831.500, Y -290.000, Z 10.950, A -90.0000, B 90.0000, C -130.0000} C_DIS
-  LIN {X 833.000, Y -290.000, Z 10.950, A -90.0000, B 90.0000, C -130.0000} C_DIS
+  LIN {X 833.000, Y -290.000, Z 10.950, A -90.0000, B 90.0000, C -130.0000}
+  ; final retract to Z 105.9
+  LIN {X 833.000, Y -290.000, Z 105.944, A -90.0000, B 90.0000, C -130.0000}
 END

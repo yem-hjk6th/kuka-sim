@@ -146,14 +146,17 @@ class CollisionModel:
         d2 = np.minimum(np.minimum(dist2(t), dist2(np.zeros_like(t))), dist2(np.ones_like(t)))
         return np.sqrt(d2)
 
-    def clearance(self, q, return_detail=False):
+    def clearance(self, q, return_detail=False, exempt_tip=True):
         """Signed clearance margin (mm) per configuration: min over primitives and
-        obstacles of (distance - radius - required clearance). >= 0 is collision-free."""
+        obstacles of (distance - radius - required clearance). >= 0 is collision-free.
+
+        ``exempt_tip``: the last part of the nozzle may touch the bed and the floor
+        while printing. Transits away from the print set it to False."""
         q = np.asarray(q, float).reshape(-1, 6)
         caps = self.capsules(q)                      # (N, M, 2, 3)
         out = np.full(q.shape[0], np.inf)
         detail = {}
-        tip = np.array([n == "tool_tip" for n in self.names])
+        tip = np.array([n == "tool_tip" for n in self.names]) & bool(exempt_tip)
         for box in self.boxes:
             # cheap lower bound: distance between the segment's AABB and the box
             gap = np.maximum(np.maximum(box.lo - caps.max(-2), caps.min(-2) - box.hi), 0.0)
