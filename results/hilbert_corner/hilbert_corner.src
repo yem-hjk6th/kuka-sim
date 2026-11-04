@@ -1,0 +1,71 @@
+; NOT RUN - generated in simulation, never executed on a robot
+; This file was produced by kuka-sim (Hilbert corner test) and has never been run.
+; Do not load it on a controller without a separate review and a dry run.
+; Hilbert order 3, side 380 mm, centre (685.5, -386.4), layer Z 2.250, 50 corners
+; TOOL 3 assumed = {X 225.55, Y -0.6, Z 72.83, A 0.0, B 0.0, C 0.0} (copied, to be re-confirmed); BASE 0
+; Speed: $VEL.CP = 20.0 mm/s at 100 % override; straights at $OV_PRO 60 % = 12 mm/s.
+; The corner overrides are NOT set here: a PC-side controller switches $OV_PRO per schedule.csv.
+; C_DIS 3 mm; KRC limits it to half the shorter adjacent segment.
+; The approach to the first PTP and the PTP motion itself are not planned or collision-checked.
+; Checks: all passed
+DEF hilbert_corner()
+  $BASE = $NULLFRAME
+  $TOOL = TOOL_DATA[3]
+  $VEL.CP = 0.0200
+  $APO.CDIS = 3
+  $ORI_TYPE = #CONSTANT
+  PTP {A1 59.9827, A2 -35.9175, A3 107.4951, A4 61.2709, A5 -80.9038, A6 -16.0883}  ; 20 mm above the start
+  LIN {X 495.500, Y -576.400, Z 2.250, A 0.0000, B 90.0000, C 0.0000}  ; start (exact stop)
+  LIN {X 495.500, Y -522.114, Z 2.250, A 0.0000, B 90.0000, C 0.0000} C_DIS  ; corner 0: r 0.7, OV 42 %
+  LIN {X 549.786, Y -522.114, Z 2.250, A 0.0000, B 90.0000, C 0.0000} C_DIS  ; corner 1: r 1.15, OV 69 %
+  LIN {X 549.786, Y -576.400, Z 2.250, A 0.0000, B 90.0000, C 0.0000} C_DIS  ; corner 2: r 0.85, OV 51 %
+  LIN {X 658.357, Y -576.400, Z 2.250, A 0.0000, B 90.0000, C 0.0000} C_DIS  ; corner 3: r 0.85, OV 51 %
+  LIN {X 658.357, Y -522.114, Z 2.250, A 0.0000, B 90.0000, C 0.0000} C_DIS  ; corner 4: r 0.85, OV 51 %
+  LIN {X 604.071, Y -522.114, Z 2.250, A 0.0000, B 90.0000, C 0.0000} C_DIS  ; corner 5: r 1.5, OV 90 %
+  LIN {X 604.071, Y -467.829, Z 2.250, A 0.0000, B 90.0000, C 0.0000} C_DIS  ; corner 6: r 1.5, OV 90 %
+  LIN {X 658.357, Y -467.829, Z 2.250, A 0.0000, B 90.0000, C 0.0000} C_DIS  ; corner 7: r 1, OV 60 %
+  LIN {X 658.357, Y -413.543, Z 2.250, A 0.0000, B 90.0000, C 0.0000} C_DIS  ; corner 8: r 1, OV 60 %
+  LIN {X 549.786, Y -413.543, Z 2.250, A 0.0000, B 90.0000, C 0.0000} C_DIS  ; corner 9: r 0.5, OV 30 %
+  LIN {X 549.786, Y -467.829, Z 2.250, A 0.0000, B 90.0000, C 0.0000} C_DIS  ; corner 10: r 0.85, OV 51 %
+  LIN {X 495.500, Y -467.829, Z 2.250, A 0.0000, B 90.0000, C 0.0000} C_DIS  ; corner 11: r 1.3, OV 78 %
+  LIN {X 495.500, Y -359.257, Z 2.250, A 0.0000, B 90.0000, C 0.0000} C_DIS  ; corner 12: r 0.85, OV 51 %
+  LIN {X 549.786, Y -359.257, Z 2.250, A 0.0000, B 90.0000, C 0.0000} C_DIS  ; corner 13: r 1, OV 60 %
+  LIN {X 549.786, Y -304.971, Z 2.250, A 0.0000, B 90.0000, C 0.0000} C_DIS  ; corner 14: r 0.5, OV 30 %
+  LIN {X 495.500, Y -304.971, Z 2.250, A 0.0000, B 90.0000, C 0.0000} C_DIS  ; corner 15: r 1.5, OV 90 %
+  LIN {X 495.500, Y -196.400, Z 2.250, A 0.0000, B 90.0000, C 0.0000} C_DIS  ; corner 16: r 0.7, OV 42 %
+  LIN {X 549.786, Y -196.400, Z 2.250, A 0.0000, B 90.0000, C 0.0000} C_DIS  ; corner 17: r 0.5, OV 30 %
+  LIN {X 549.786, Y -250.686, Z 2.250, A 0.0000, B 90.0000, C 0.0000} C_DIS  ; corner 18: r 1.5, OV 90 %
+  LIN {X 604.071, Y -250.686, Z 2.250, A 0.0000, B 90.0000, C 0.0000} C_DIS  ; corner 19: r 0.5, OV 30 %
+  LIN {X 604.071, Y -196.400, Z 2.250, A 0.0000, B 90.0000, C 0.0000} C_DIS  ; corner 20: r 1, OV 60 %
+  LIN {X 658.357, Y -196.400, Z 2.250, A 0.0000, B 90.0000, C 0.0000} C_DIS  ; corner 21: r 1.3, OV 78 %
+  LIN {X 658.357, Y -304.971, Z 2.250, A 0.0000, B 90.0000, C 0.0000} C_DIS  ; corner 22: r 1.3, OV 78 %
+  LIN {X 604.071, Y -304.971, Z 2.250, A 0.0000, B 90.0000, C 0.0000} C_DIS  ; corner 23: r 0.7, OV 42 %
+  LIN {X 604.071, Y -359.257, Z 2.250, A 0.0000, B 90.0000, C 0.0000} C_DIS  ; corner 24: r 1, OV 60 %
+  LIN {X 766.929, Y -359.257, Z 2.250, A 0.0000, B 90.0000, C 0.0000} C_DIS  ; corner 25: r 0.5, OV 30 %
+  LIN {X 766.929, Y -304.971, Z 2.250, A 0.0000, B 90.0000, C 0.0000} C_DIS  ; corner 26: r 0.85, OV 51 %
+  LIN {X 712.643, Y -304.971, Z 2.250, A 0.0000, B 90.0000, C 0.0000} C_DIS  ; corner 27: r 0.7, OV 42 %
+  LIN {X 712.643, Y -196.400, Z 2.250, A 0.0000, B 90.0000, C 0.0000} C_DIS  ; corner 28: r 1.15, OV 69 %
+  LIN {X 766.929, Y -196.400, Z 2.250, A 0.0000, B 90.0000, C 0.0000} C_DIS  ; corner 29: r 1.15, OV 69 %
+  LIN {X 766.929, Y -250.686, Z 2.250, A 0.0000, B 90.0000, C 0.0000} C_DIS  ; corner 30: r 0.5, OV 30 %
+  LIN {X 821.214, Y -250.686, Z 2.250, A 0.0000, B 90.0000, C 0.0000} C_DIS  ; corner 31: r 1.15, OV 69 %
+  LIN {X 821.214, Y -196.400, Z 2.250, A 0.0000, B 90.0000, C 0.0000} C_DIS  ; corner 32: r 0.5, OV 30 %
+  LIN {X 875.500, Y -196.400, Z 2.250, A 0.0000, B 90.0000, C 0.0000} C_DIS  ; corner 33: r 1.3, OV 78 %
+  LIN {X 875.500, Y -304.971, Z 2.250, A 0.0000, B 90.0000, C 0.0000} C_DIS  ; corner 34: r 0.7, OV 42 %
+  LIN {X 821.214, Y -304.971, Z 2.250, A 0.0000, B 90.0000, C 0.0000} C_DIS  ; corner 35: r 1.3, OV 78 %
+  LIN {X 821.214, Y -359.257, Z 2.250, A 0.0000, B 90.0000, C 0.0000} C_DIS  ; corner 36: r 1, OV 60 %
+  LIN {X 875.500, Y -359.257, Z 2.250, A 0.0000, B 90.0000, C 0.0000} C_DIS  ; corner 37: r 1.5, OV 90 %
+  LIN {X 875.500, Y -467.829, Z 2.250, A 0.0000, B 90.0000, C 0.0000} C_DIS  ; corner 38: r 0.85, OV 51 %
+  LIN {X 821.214, Y -467.829, Z 2.250, A 0.0000, B 90.0000, C 0.0000} C_DIS  ; corner 39: r 1.3, OV 78 %
+  LIN {X 821.214, Y -413.543, Z 2.250, A 0.0000, B 90.0000, C 0.0000} C_DIS  ; corner 40: r 1, OV 60 %
+  LIN {X 712.643, Y -413.543, Z 2.250, A 0.0000, B 90.0000, C 0.0000} C_DIS  ; corner 41: r 0.7, OV 42 %
+  LIN {X 712.643, Y -467.829, Z 2.250, A 0.0000, B 90.0000, C 0.0000} C_DIS  ; corner 42: r 1.3, OV 78 %
+  LIN {X 766.929, Y -467.829, Z 2.250, A 0.0000, B 90.0000, C 0.0000} C_DIS  ; corner 43: r 0.7, OV 42 %
+  LIN {X 766.929, Y -522.114, Z 2.250, A 0.0000, B 90.0000, C 0.0000} C_DIS  ; corner 44: r 1.15, OV 69 %
+  LIN {X 712.643, Y -522.114, Z 2.250, A 0.0000, B 90.0000, C 0.0000} C_DIS  ; corner 45: r 1.5, OV 90 %
+  LIN {X 712.643, Y -576.400, Z 2.250, A 0.0000, B 90.0000, C 0.0000} C_DIS  ; corner 46: r 1.15, OV 69 %
+  LIN {X 821.214, Y -576.400, Z 2.250, A 0.0000, B 90.0000, C 0.0000} C_DIS  ; corner 47: r 1.15, OV 69 %
+  LIN {X 821.214, Y -522.114, Z 2.250, A 0.0000, B 90.0000, C 0.0000} C_DIS  ; corner 48: r 1.5, OV 90 %
+  LIN {X 875.500, Y -522.114, Z 2.250, A 0.0000, B 90.0000, C 0.0000} C_DIS  ; corner 49: r 1, OV 60 %
+  LIN {X 875.500, Y -576.400, Z 2.250, A 0.0000, B 90.0000, C 0.0000}  ; end (exact stop)
+  LIN {X 875.500, Y -576.400, Z 22.250, A 0.0000, B 90.0000, C 0.0000}
+END

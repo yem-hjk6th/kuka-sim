@@ -49,3 +49,39 @@ collision:
     barrel_back_mm: 120      # hopper/feed side behind the flange axis (-X tool)
     nozzle_length: 40        # nozzle cone length before the tip
     nozzle_radius: 10
+
+# Corner test (kukasim/hilbert_corner.py, scripts/run_hilbert_corner.py): one planar Hilbert
+# curve, fixed extruder rpm, a different speed-override ratio at every corner.
+# Every value here is a choice or an assumption, not a measurement of the cell.
+hilbert_corner:
+  order: 3                   # Hilbert order n: 4^n vertices on a 2^n x 2^n grid
+  side_mm: null              # null: largest square (rounded down to 10 mm) that fits the reachable bed
+  center_xy: null            # null: centre of that square; set both side_mm and center_xy to place it by hand
+  fit_margin_mm: 20          # margin of the fitted square to unreachable / colliding / off-bed points
+  fit_grid_mm: 5             # resolution of the reachability map used for the fit
+  bed_edge_margin_mm: 20     # nozzle tip at least this far inside the bed outline (check)
+  theta_deg: 0.0             # rotation about the vertical nozzle; 0 = A0 B90 C0 of the planar programs
+  approach_lift_mm: 20       # start / end the layer with a vertical LIN from this height
+  ratios: [0.5, 0.7, 0.85, 1.0, 1.15, 1.3, 1.5]   # r = corner override / straight override
+  min_repeats: 2             # every ratio is used at least this often
+  seed: 1                    # seeded random order of the ratios over the corners
+  straight_speed_mm_s: null  # null: process.print_speed_mm_s from cell.yaml
+  straight_override_pct: 60  # $OV_PRO on straights; r_max * 60 = 90 % stays <= 100 %
+  window_before_mm: 10       # PC switches to the corner override this far before the corner vertex
+  window_after_mm: 5         # ... and back to the straight override this far after it
+  min_straight_mm: 15        # ASSUMPTION: extruder flow responds in a few tenths of a second; at ~12 mm/s
+                             # 0.3 s is ~4 mm, so 15 mm (~4 time constants) between override windows keeps one
+                             # corner's transient out of the next. Corners with a shorter straight get r = 1.
+  # Corner-speed model (model estimate only; compare with the speed logged by the controller)
+  c_dis_mm: 3.0              # $APO.CDIS used in the export; KRC caps it at half the shorter adjacent segment
+  path_acc_mm_s2: 500        # ASSUMED path acceleration for override changes (trapezoid); not read from the KRC
+  lateral_acc_mm_s2: 500     # ASSUMED lateral acceleration limit in the blend arc (v <= sqrt(a R_min))
+  pc_latency_s: 0.10         # ASSUMED delay from the PC's position read to the new override taking effect
+  # Check thresholds
+  max_tcp_speed_mm_s: 100    # flag any commanded TCP speed above this
+  min_abs_a5_deg: 10         # wrist singularity
+  min_elbow_deg: 10          # |A3 - stretched-arm angle|
+  min_shoulder_mm: 150       # wrist centre distance to the A1 axis
+  min_nozzle_bed_mm: 0.5     # nozzle tip above the highest bed point
+  bed_top_max_z: 1.38        # highest measured bed top (cell.yaml comment: 1.38 at the +X/+Y corner, cloth tape)
+  ds_mm: 1.0                 # sampling of the blended path for the checks and the speed profile
