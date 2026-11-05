@@ -155,8 +155,12 @@ def test_results_agree_with_export_reports(results_reports):
         # speed settings of the export, as the checker reads them at every PTP
         prog = parse_program(f.read_text(encoding="utf-8"))
         first = prog.motions[0]
-        assert first.state["vel_axis_pct"] == [ex["params"]["vel_axis_pct"]] * 6, f.name
-        assert first.state["acc_axis_pct"] == [ex["params"]["acc_axis_pct"]] * 6, f.name
+        # since #7 the first PTP runs with the speed set for it (export_report "first_ptp"), not the transit default
+        fp = ex.get("first_ptp")
+        want_vel = fp["vel_axis_pct"] if fp else ex["params"]["vel_axis_pct"]
+        want_acc = fp["acc_axis_pct"] if fp else ex["params"]["acc_axis_pct"]
+        assert first.state["vel_axis_pct"] == [want_vel] * 6, f.name
+        assert first.state["acc_axis_pct"] == [want_acc] * 6, f.name
         # joints of every printed point
         traj = _trajectory(f.parent)
         n_pts = sum(b - a + 1 for a, b in ex["segments"])

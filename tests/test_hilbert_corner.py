@@ -348,8 +348,10 @@ def test_approach_ptp(default, cell, tmp_path):
     lines = (tmp_path / "a.src").read_text().splitlines()
     k = next(i for i, ln in enumerate(lines) if ln.startswith("  PTP"))
     before = lines[:k]
+    fp = hc.first_ptp(ct, robot, cfg)        # $VEL_AXIS of the first PTP (kukasim/first_ptp.py)
+    assert 1 <= fp.vel_axis_pct <= ct.params["approach_vel_axis_pct"]
     for i in range(1, 7):
-        assert f"  $VEL_AXIS[{i}] = {ct.params['approach_vel_axis_pct']:g}" in before
+        assert f"  $VEL_AXIS[{i}] = {fp.vel_axis_pct:d}" in before
         assert f"  $ACC_AXIS[{i}] = {ct.params['approach_acc_axis_pct']:g}" in before
 
 

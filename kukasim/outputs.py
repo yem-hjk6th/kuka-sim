@@ -1,4 +1,7 @@
-"""Per-toolpath outputs: trajectory CSV, plots, feasibility map, animation, KRL export."""
+"""Per-toolpath outputs: trajectory CSV, plots, feasibility map, animation, KRL export.
+
+Numbers in the CSV use the fixed form of kukasim/krl.py (fnum / fang): fixed decimals,
+never a negative zero, orientation angles A / C in (-180, 180]."""
 from __future__ import annotations
 
 import csv
@@ -10,7 +13,7 @@ matplotlib.use("Agg")
 import matplotlib.pyplot as plt  # noqa: E402
 import numpy as np  # noqa: E402
 
-from .krl import write_krl  # noqa: E402,F401  (re-export)
+from .krl import fang, fnum, write_krl  # noqa: E402,F401  (write_krl: re-export)
 from .rotations import matrix_to_abc  # noqa: E402
 
 BLUE, ORANGE, GRAY, INK, MUTED = "#2a78d6", "#eb6834", "#8a8984", "#0b0b0b", "#52514e"
@@ -67,17 +70,17 @@ def write_csv(path, robot, res, rows):
                     "X", "Y", "Z", "A", "B", "C", "S_unverified", "T", "limit_margin_deg",
                     "abs_A5_deg", "clearance_mm_capped50", "node_cost"])
         for i in range(len(res.bins)):
-            base = [i, f"{tp.s[i]:.3f}", *[f"{v:.3f}" for v in tp.points[i]],
-                    *[f"{v:.6f}" for v in tp.dirs[i]], f"{tp.tilt_deg[i]:.3f}"]
+            base = [i, fnum(tp.s[i], 3), *[fnum(v, 3) for v in tp.points[i]],
+                    *[fnum(v, 6) for v in tp.dirs[i]], fnum(tp.tilt_deg[i], 3)]
             if rows[i] is None:
                 w.writerow(base + [0, -1] + [""] * 23)
                 continue
             p, abc = rows[i]
-            w.writerow(base + [1, seg[i], f"{res.thetas_deg[res.bins[i]]:.1f}", res.slots[i],
-                               *[f"{v:.4f}" for v in qd[i]], *[f"{v:.3f}" for v in p],
-                               *[f"{v:.4f}" for v in abc], int(S[i]), int(T[i]),
-                               f"{res.limit_margin[i]:.3f}", f"{abs(qd[i, 4]):.3f}",
-                               f"{res.clearance[i]:.2f}", f"{res.node_cost[i]:.5f}"])
+            w.writerow(base + [1, seg[i], fnum(res.thetas_deg[res.bins[i]], 1), res.slots[i],
+                               *[fnum(v, 4) for v in qd[i]], *[fnum(v, 3) for v in p],
+                               fang(abc[0], 4), fnum(abc[1], 4), fang(abc[2], 4), int(S[i]), int(T[i]),
+                               fnum(res.limit_margin[i], 3), fnum(abs(qd[i, 4]), 3),
+                               fnum(res.clearance[i], 2), fnum(res.node_cost[i], 5)])
 
 
 def _shade_infeasible(ax, s, feasible):

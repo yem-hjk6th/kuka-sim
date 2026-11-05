@@ -28,7 +28,7 @@ from kukasim.transit import TransitPlanner  # noqa: E402
 
 def export_summary(rep):
     """The parts of a KRL export report that go into summary.json / RESULTS.md."""
-    return {k: rep[k] for k in ("params", "transits", "flags", "before_direct_ptp")}
+    return {k: rep[k] for k in ("params", "transits", "flags", "before_direct_ptp", "first_ptp")}
 
 
 def summarize(res, diag):

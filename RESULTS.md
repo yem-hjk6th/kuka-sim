@@ -114,7 +114,17 @@ TCP speeds are a **model estimate**: every axis at most `$VEL_AXIS` % of its URD
 
 Clearance per move: retract / approach LINs with the tip exempt from the bed (they start on the print), PTP and lift / lower LINs with the tip included.
 
-Flag thresholds: peak TCP speed > 80 mm/s (only with `allow_fast_transit`), |dA4| or |dA6| > 180 deg, any collision, any primitive (tip included) closer than 15 mm to the bed at transit height. Retract and approach LINs run at the print `$VEL.CP` with the orientation held. Every export also approaches its first point and leaves its last point the same way; the first PTP comes from the unknown current pose and is not checked.
+Flag thresholds: peak TCP speed > 80 mm/s (only with `allow_fast_transit`), |dA4| or |dA6| > 180 deg, any collision, any primitive (tip included) closer than 15 mm to the bed at transit height. Retract and approach LINs run at the print `$VEL.CP` with the orientation held. Every export also approaches its first point and leaves its last point the same way.
+
+First PTP (from the pose the robot is in when a program starts; `kukasim/first_ptp.py`): its TCP speed is at most B(p) = sum_i ($VEL_AXIS p % x URDF axis max speed) x r_i from any start, with the axis-to-tool-tip radii r_i = 1428.6, 1403.6, 843.5, 330.3, 327, 225.6 mm (bounded from the URDF and TOOL 3). At $VEL_AXIS 1 % this upper bound is B(1) = 236.9 mm/s. An upper bound above 80 mm/s alone does not show that a slower start pose cannot exist; the sampled evidence does: synchronous PTPs at $VEL_AXIS 1 % between 3000 random poses inside the joint limits reach 117.6 mm/s, above 80 mm/s (`tests/test_first_ptp.py::test_brute_force_random_starts_never_exceed_the_bound`), so no $VEL_AXIS >= 1 % keeps every start / target pair at or below the limit and a start-independent setting does not exist (case `declared start`): the programs require the robot to be at the declared start pose {A1 0, A2 -90, A3 90, A4 0, A5 0, A6 0} (+-1 deg per axis, `transit.start_axis`, a default to be replaced by the cell's real start pose) and lower $VEL_AXIS for the first PTP with the transit speed model, evaluated from 985 sampled starts in the tolerance box (the 3^6 grid at -tol, 0, +tol plus random interior points with a fixed seed). This is a sample, not a bound over the box, so the worst sampled peak must stay <= 72 mm/s = (1 - 0.1) x 80 mm/s. The path of the first PTP is not collision-checked.
+
+| surface | case | first PTP $VEL_AXIS | peak TCP (model, worst sampled over 985 starts in the box, not a bound) | from the nominal start (model) |
+|---|---|---|---|---|
+| dome | declared start | 1 % | 41.3 mm/s | 40.3 mm/s |
+| saddle | declared start | 1 % | 44.7 mm/s | 43.4 mm/s |
+| sine_wave | declared start | 1 % | 50.7 mm/s | 49.1 mm/s |
+| ramp_45 | declared start | 1 % | 51.3 mm/s | 49.8 mm/s |
+| perimeter | declared start | 1 % | 43.8 mm/s | 42.4 mm/s |
 
 ## Files per toolpath (`results/<surface>/`)
 

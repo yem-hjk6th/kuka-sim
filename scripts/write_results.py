@@ -92,8 +92,44 @@ def transit_section(s):
              f"`allow_fast_transit`), |dA4| or |dA6| > {p['max_wrist_turn_deg']} deg, any collision, any primitive "
              f"(tip included) closer than {p['bed_clearance_mm']} mm to the bed at transit height. Retract and "
              "approach LINs run at the print `$VEL.CP` with the orientation held. Every export also approaches its "
-             "first point and leaves its last point the same way; the first PTP comes from the unknown current "
-             "pose and is not checked.\n")
+             "first point and leaves its last point the same way.\n")
+    fps = {n: v["export"]["first_ptp"] for n, v in s["surfaces"].items() if "first_ptp" in v.get("export", {})}
+    if fps:
+        f0 = next(iter(fps.values()))
+        r = ", ".join(f"{v:g}" for v in f0["axis_tip_radii_mm"])
+        L.append("First PTP (from the pose the robot is in when a program starts; `kukasim/first_ptp.py`): its "
+                 "TCP speed is at most B(p) = sum_i ($VEL_AXIS p % x URDF axis max speed) x r_i from any start, "
+                 f"with the axis-to-tool-tip radii r_i = {r} mm (bounded from the URDF and TOOL 3). At $VEL_AXIS "
+                 f"1 % this upper bound is B(1) = {f0['bound_at_1pct_mm_s']:g} mm/s"
+                 + (f" <= {f0['limit_mm_s']:g} mm/s, so the programs set $VEL_AXIS {f0['vel_axis_pct']} % "
+                    "(case `bound`)." if f0["case"] == "bound" else
+                    f". An upper bound above {f0['limit_mm_s']:g} mm/s alone does not show that a slower start "
+                    "pose cannot exist; the sampled evidence does: synchronous PTPs at $VEL_AXIS 1 % between "
+                    "3000 random poses inside the joint limits reach "
+                    f"{f0['sampled_random_start_peak_1pct_mm_s']:g} mm/s, above {f0['limit_mm_s']:g} mm/s "
+                    "(`tests/test_first_ptp.py::test_brute_force_random_starts_never_exceed_the_bound`), so no "
+                    "$VEL_AXIS >= 1 % keeps every start / target pair at or below the limit and a start-independent "
+                    "setting does not exist (case `declared start`): the programs require the "
+                    "robot to be at the declared start pose "
+                    f"{{{', '.join(f'A{i + 1} {v:g}' for i, v in enumerate(f0['start_axis_deg']))}}} "
+                    f"(+-{f0['start_tolerance_deg']:g} deg per axis, `transit.start_axis`, a default to be replaced "
+                    "by the cell's real start pose) and lower $VEL_AXIS for the first PTP with the transit speed "
+                    f"model, evaluated from {f0['sampled_starts']} sampled starts in the tolerance box (the 3^6 grid "
+                    "at -tol, 0, +tol plus random interior points with a fixed seed). This is a sample, not a bound "
+                    "over the box, so the worst sampled peak must stay <= "
+                    f"{f0['sample_limit_mm_s']:g} mm/s = (1 - {f0['sample_margin']:g}) x {f0['limit_mm_s']:g} mm/s. "
+                    "The path of the first PTP is not collision-checked.") + "\n")
+        n0 = f0.get("sampled_starts")
+        L.append("| surface | case | first PTP $VEL_AXIS | peak TCP (model, "
+                 + (f"worst sampled over {n0} starts in the box, not a bound)" if f0["case"] == "declared start"
+                    else "bound from any start)") + " | from the nominal start (model) |\n"
+                 "|---|---|---|---|---|")
+        for n, f in fps.items():
+            nom = f.get("peak_tcp_nominal_start_mm_s")
+            pk = "-" if f["peak_tcp_mm_s"] is None else f"{f['peak_tcp_mm_s']:g} mm/s"
+            L.append(f"| {n} | {f['case']} | {f['vel_axis_pct']} % | {pk} | "
+                     + ("-" if nom is None else f"{nom:g} mm/s") + " |")
+        L.append("")
     return L
 
 

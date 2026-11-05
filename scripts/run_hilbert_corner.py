@@ -19,10 +19,12 @@ sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 from kukasim import hilbert_corner as hc  # noqa: E402
 from kukasim.collision import CollisionModel  # noqa: E402
 from kukasim.config import load_config  # noqa: E402
+from kukasim.first_ptp import StartPoseError  # noqa: E402
 from kukasim.kinematics import Robot  # noqa: E402
 
 
-def main(argv=None):
+def main(argv=None, cfg=None):
+    """cfg: a loaded config (default: load_config()), e.g. with planner overrides in tests."""
     ap = argparse.ArgumentParser(description=__doc__.splitlines()[0])
     ap.add_argument("--out", default="results/hilbert_corner")
     ap.add_argument("--order", type=int)
@@ -42,7 +44,7 @@ def main(argv=None):
     ap.add_argument("--dip", type=float, help="corner dip factor of the speed model (1.0 = no dip)")
     args = ap.parse_args(argv)
 
-    cfg = load_config()
+    cfg = cfg if cfg is not None else load_config()
     robot = Robot.from_config(cfg)
     ct = hc.generate(cfg, robot, order=args.order, side_mm=args.side, center_xy=args.center,
                      ratios=args.ratios, min_repeats=args.min_repeats, seed=args.seed,
@@ -54,7 +56,14 @@ def main(argv=None):
     hc.write_waypoints_csv(out / "waypoints.csv", ct, robot)
     hc.write_schedule_csv(out / "schedule.csv", ct)
     hc.write_speed_csv(out / "speed_profile.csv", ct)
-    hc.write_krl(out / "hilbert_corner.src", ct, robot, cfg)
+    src = out / "hilbert_corner.src"
+    try:
+        hc.write_krl(src, ct, robot, cfg)
+        src_note = "KRL export (NOT RUN)"
+    except StartPoseError as e:
+        # invalid declared start pose: the failed check goes into report.md, no program is written
+        src.unlink(missing_ok=True)
+        src_note = f"NOT written: first PTP check failed ({e})"
     hc.plot_path(out / "path.png", ct, cfg, CollisionModel(robot, cfg))
     hc.plot_speed(out / "speed.png", ct)
     files = [("waypoints.csv", "start, corners and end with corner id, ratio, segment lengths, joints, "
@@ -62,7 +71,7 @@ def main(argv=None):
              ("schedule.csv", "one row per corner: zones and corner speed (pc mode: the $OV_PRO schedule for a "
               "PC-side follower, not provided in this repository)"),
              ("speed_profile.csv", "model speed along the path"),
-             ("hilbert_corner.src", "KRL export (NOT RUN)"),
+             ("hilbert_corner.src", src_note),
              ("path.png", "path with corner ids and ratios"),
              ("speed.png", "model speed profile")]
     hc.write_report(out / "report.md", ct, cfg, files)
