@@ -4,3 +4,4 @@ __pycache__/
 *.pyc
 .venv/
 out/
+config/keep_out.local.yaml

@@ -202,11 +202,17 @@ class TransitPlanner:
             m.bed_distance_mm = float(det["bed"].min() + self.bed_gap)
         return m
 
+    def ptp_samples(self, q0, q1, step_deg=None):
+        """Joint-space samples (n, 6) of a synchronous PTP from q0 to q1 (rad), at most
+        ``step_deg`` (default ``ptp_sample_deg``) per joint between samples."""
+        step = self.p["ptp_sample_deg"] if step_deg is None else step_deg
+        n = int(np.ceil(np.degrees(np.abs(q1 - q0)).max() / step)) + 1
+        s = np.linspace(0.0, 1.0, max(n, 2))[:, None]
+        return q0 + s * (q1 - q0)
+
     def ptp(self, q0, q1, label="transit", pct=None, checked_tip=True, enforce=False, acc_pct=None):
         """PTP sampled in joint space. enforce: lower $VEL_AXIS to meet speed_limit (transits)."""
-        n = int(np.ceil(np.degrees(np.abs(q1 - q0)).max() / self.p["ptp_sample_deg"])) + 1
-        s = np.linspace(0.0, 1.0, max(n, 2))[:, None]
-        q = q0 + s * (q1 - q0)
+        q = self.ptp_samples(q0, q1)
         m = Move("PTP", label, q, self.robot.fk(q)[:, :3, 3], checked_tip)
         self._set_speed(m, self.p["vel_axis_pct"] if pct is None else pct, acc_pct)
         if enforce:
