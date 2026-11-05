@@ -1,0 +1,9 @@
+# Example of a local keep-out file for scripts/check_src.py. FAKE VALUES, not a site measurement.
+# Copy to config/keep_out.local.yaml (git-ignored, never committed) and replace the box with the
+# site's keep-out zones. Same entry format as keep_out in cell.yaml: BASE 0, mm.
+keep_out:
+  - name: example_fake_box
+    x: [-9100, -9000]        # far outside the cell on purpose
+    y: [-9100, -9000]
+    z: [0, 100]
+    clearance_mm: 10

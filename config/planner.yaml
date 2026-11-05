@@ -132,3 +132,32 @@ hilbert_corner:
   bed_top_max_z: 1.38        # highest measured bed top (cell.yaml comment: 1.38 at the +X/+Y corner, cloth tape)
   ds_mm: 1.0                 # sampling of the blended path for the checks and the speed profile
   min_lin_mm: 0.5            # guard: every LIN of the export must be longer than this
+
+# Static check of a KRL program against this cell model (kukasim/src_check.py, scripts/check_src.py).
+# Defaults are copied from the transit and hilbert_corner sections above (noted per value); the
+# checker reads only this section, so changing a value here does not change the exporters.
+src_check:
+  lin_sample_mm: 1.0         # = transit.lin_sample_mm: max TCP step between LIN samples
+  lin_sample_deg: 1.0        # NEW (no counterpart): max orientation step between LIN samples; transit LINs
+                             # hold the orientation, a program's LINs may turn the nozzle by 15 deg in 1.5 mm
+  ptp_sample_deg: 0.5        # = transit.ptp_sample_deg: max joint change between PTP samples
+  lin_ori_ambiguous_deg: 1.0 # NEW: a #VAR LIN turning the tool by more than 180 - this is not path-checked
+                             # (no unique shortest rotation; the sampled path would depend on rounding)
+  lin_max_joint_step_deg: 3.0   # = transit.lin_max_joint_step_deg: a LIN whose IK jumps more than this
+                             # between samples is not continuous (configuration change)
+  min_abs_a5_deg: 10         # = hilbert_corner.min_abs_a5_deg (wrist singularity)
+  min_elbow_deg: 10          # = hilbert_corner.min_elbow_deg (|A3 - stretched-arm angle|)
+  min_shoulder_mm: 150       # = hilbert_corner.min_shoulder_mm (wrist-centre distance to the A1 axis)
+  max_tcp_speed_mm_s: 100    # = transit / hilbert_corner max_tcp_speed_mm_s (M1). Flag above this.
+                             # No safety factor here: the exporters enforce 0.8 x this on their transits.
+  min_clearance_mm: 0.0      # flag a signed CollisionModel clearance below this (M2); the bed gap (5 mm),
+                             # the clamp inflation (20 mm) and each keep-out's clearance_mm are already inside
+                             # the margin, as in transit (a transit with clearance < 0 is flagged)
+  min_nozzle_bed_mm: 0.5     # = hilbert_corner.min_nozzle_bed_mm (M3): tip Z above the highest bed point
+  bed_top_max_z: 1.38        # = hilbert_corner.bed_top_max_z (highest measured bed top, cell.yaml comment)
+  bed_edge_margin_mm: 20     # = hilbert_corner.bed_edge_margin_mm: LIN tip XY inside the bed outline minus this
+  unset_vel_axis_pct: 100    # $VEL_AXIS assumed where the program has not set it (= transit.before_vel_axis_pct)
+  unset_acc_axis_pct: 100    # $ACC_AXIS assumed where not set (= the 100 % used for the 'before' PTP in krl.py)
+  assumed_ref_axis_deg: [0, -90, 90, 0, 0, 0]   # when nothing fixes the configuration of the first Cartesian
+                             # target (no S / T, no preceding axis PTP), the IK solution closest to this is assumed
+                             # and the report says so
